@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ordini 3D - Lab</title>
+  <style>
+    body{font-family:Arial;margin:0;background:#f4f4f4}
+    header{background:#fff;padding:10px;border-bottom:1px solid #ccc}
+    input,button{padding:8px;margin:4px}
+    .board{display:flex;gap:10px;padding:10px;overflow:auto}
+    .col{background:#fff;padding:10px;width:220px;border:1px solid #ccc}
+    .card{border:1px solid #999;padding:6px;margin:6px 0}
+  </style>
+</head>
+<body>
+<header>
+  <h3>Ordini 3D - Laboratorio</h3>
+  <input id="cliente" placeholder="Cliente">
+  <input id="prodotto" placeholder="Prodotto">
+  <button onclick="add()">Aggiungi</button>
+</header>
+
+<div class="board" id="board"></div>
+
+<script>
+const stati=["Da stampare","In stampa","Assemblaggio","QC","Spedito"];
+let ordini=JSON.parse(localStorage.getItem("ordini")||"[]");
+
+function save(){localStorage.setItem("ordini",JSON.stringify(ordini));render();}
+function add(){
+  const c=cliente.value,p=prodotto.value;
+  if(!c||!p)return alert("Compila tutto");
+  ordini.push({c,p,s:0});
+  cliente.value="";prodotto.value="";
+  save();
+}
+function render(){
+  board.innerHTML="";
+  stati.forEach((st,i)=>{
+    const col=document.createElement("div");
+    col.className="col";
+    col.innerHTML="<b>"+st+"</b>";
+    ordini.filter(o=>o.s===i).forEach(o=>{
+      const card=document.createElement("div");
+      card.className="card";
+      card.innerHTML=o.c+"<br>"+o.p;
+      const btn=document.createElement("button");
+      btn.innerText="→";
+      btn.onclick=()=>{o.s=Math.min(4,o.s+1);save();}
+      card.appendChild(btn);
+      col.appendChild(card);
+    });
+    board.appendChild(col);
+  });
+}
+render();
+</script>
+</body>
+</html>
