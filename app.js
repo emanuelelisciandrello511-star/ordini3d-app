@@ -79,7 +79,7 @@ function addOrder() {
   const prezzo = $("prezzo")?.value.trim();
   const note = $("note")?.value.trim();
 
-  if (!cliente  !sito  !articolo || !prezzo) {
+  if (!cliente || !sito || !articolo || !prezzo) {
     alert("Compila tutti i campi obbligatori");
     return;
   }
@@ -177,7 +177,7 @@ function inColumn(o, col) {
   if (col === "PREP") return o.flow === FLOW.PREPARAZIONE;
   if (col === "FRONTALE") return o.flow === FLOW.PREPARAZIONE && !o.frontaleOK;
   if (col === "POSTERIORE") return o.flow === FLOW.PREPARAZIONE && !o.posterioreOK;
-if (col === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
+  if (col === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
   if (col === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
   if (col === "COMPLETATO") return o.flow === FLOW.COMPLETATO;
   return false;
@@ -195,7 +195,7 @@ function renderBoard() {
 
     const title = document.createElement("h2");
     const items = orders.filter(o => inColumn(o, col.id));
-    title.innerHTML = <span>${col.title}</span><span class="count">${items.length}</span>;
+    title.innerHTML = `<span>${col.title}</span><span class="count">${items.length}</span>`;
     colEl.appendChild(title);
 
     items.forEach(o => {
@@ -218,16 +218,16 @@ function renderBoard() {
       actions.className = "actions";
 
       if (col.id === "FRONTALE") {
-        actions.innerHTML = <button class="small ok" onclick="setFrontaleOK('${o.id}')">OK Frontale</button>;
+        actions.innerHTML = `<button class="small ok" onclick="setFrontaleOK('${o.id}')">OK Frontale</button>`;
       } else if (col.id === "POSTERIORE") {
-        actions.innerHTML = <button class="small ok" onclick="setPosterioreOK('${o.id}')">OK Posteriore</button>;
+        actions.innerHTML = `<button class="small ok" onclick="setPosterioreOK('${o.id}')">OK Posteriore</button>`;
       } else if (col.id === "ASSEMBLAGGIO" || col.id === "SPEDIZIONE") {
         actions.innerHTML = `
           <button class="small" onclick="goPrev('${o.id}')">←</button>
           <button class="small ok" onclick="goNext('${o.id}')">→</button>
         `;
       } else if (col.id === "COMPLETATO") {
-        actions.innerHTML = <button class="small" onclick="goPrev('${o.id}')">←</button>;
+        actions.innerHTML = `<button class="small" onclick="goPrev('${o.id}')">←</button>`;
       }
 
       card.appendChild(actions);
@@ -247,7 +247,7 @@ function refreshActiveTable() {
   tbody.innerHTML = "";
 
   if (active.length === 0) {
-    tbody.innerHTML = <tr><td colspan="7">Nessun ordine attivo</td></tr>;
+    tbody.innerHTML = `<tr><td colspan="7">Nessun ordine attivo</td></tr>`;
     return;
   }
 
