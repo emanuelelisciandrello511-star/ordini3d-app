@@ -1,11 +1,13 @@
 let orders = [];
 
+// STATI (aggiunto ASSEMBLAGGIO)
 const STATI = [
-  "Preparazione",
-  "Stampa frontale",
-  "Stampa posteriore",
-  "Spedizione",
-  "Completato"
+  { key: 0, name: "Preparazione", color: "#fff7cc", border: "#f1d36a" },
+  { key: 1, name: "Stampa frontale", color: "#e8f2ff", border: "#7fb0ff" },
+  { key: 2, name: "Stampa posteriore", color: "#ffe9dc", border: "#ffb184" },
+  { key: 3, name: "Assemblaggio", color: "#f3e8ff", border: "#b68cff" },
+  { key: 4, name: "Spedizione", color: "#e8fff3", border: "#7fe0a8" },
+  { key: 5, name: "Completato", color: "#dfffe6", border: "#33c26b" }
 ];
 
 function showNew() {
@@ -45,27 +47,54 @@ function render() {
   const board = document.getElementById("board");
   board.innerHTML = "";
 
-  STATI.forEach((nome, index) => {
+  STATI.forEach((s) => {
     const col = document.createElement("div");
     col.className = "col";
-    col.innerHTML = `<h2><span>${nome}</span><span class="count"></span></h2>`;
+    col.style.background = "#fff";
+    col.style.borderColor = "#e6e7ee";
 
-    const items = orders.filter(o => o.stato === index);
+    // header
+    const items = orders.filter(o => o.stato === s.key);
 
-    col.querySelector(".count").textContent = items.length;
+    const header = document.createElement("h2");
+    header.innerHTML = `<span>${s.name}</span><span class="count">${items.length}</span>`;
+    col.appendChild(header);
 
+    // cards
     items.forEach(o => {
       const card = document.createElement("div");
-      card.className = "card" + (index === 4 ? " done" : "");
+      card.className = "card" + (s.name === "Completato" ? " done" : "");
+      card.style.background = s.color;
+      card.style.borderColor = s.border;
 
       card.innerHTML = `
         <div class="title">${o.progetto} — € ${o.prezzo}</div>
-        <div class="meta"><b>Cliente:</b> ${o.cliente}<br><b>Sito:</b> ${o.sito}${o.note ? `<br><b>Note:</b> ${o.note}` : ""}</div>
-        <div class="actions">
-          <button class="small ok" onclick="nextOrder('${o.progetto}')">Avanti →</button>
+        <div class="meta">
+          <b>Cliente:</b> ${o.cliente}<br>
+          <b>Sito:</b> ${o.sito}
+          ${o.note ? `<br><b>Note:</b> ${o.note}` : ""}
         </div>
       `;
 
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      const bPrev = document.createElement("button");
+      bPrev.className = "small";
+      bPrev.textContent = "← Indietro";
+      bPrev.disabled = (o.stato === 0);
+      bPrev.onclick = () => { o.stato = Math.max(0, o.stato - 1); render(); };
+
+      const bNext = document.createElement("button");
+      bNext.className = "small ok";
+      bNext.textContent = "Avanti →";
+      bNext.disabled = (o.stato === STATI.length - 1);
+      bNext.onclick = () => { o.stato = Math.min(STATI.length - 1, o.stato + 1); render(); };
+
+      actions.appendChild(bPrev);
+      actions.appendChild(bNext);
+
+      card.appendChild(actions);
       col.appendChild(card);
     });
 
@@ -73,14 +102,5 @@ function render() {
   });
 }
 
-function nextOrder(progetto) {
-  const ordine = orders.find(o => o.progetto === progetto);
-  if (ordine && ordine.stato < 4) {
-    ordine.stato++;
-    render();
-  }
-}
-
 // Avvio
 showNew();
-
