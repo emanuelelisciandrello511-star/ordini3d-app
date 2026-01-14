@@ -1,60 +1,298 @@
-<!doctype html>
-<html lang="it">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ordini 3D - Lab</title>
-  <style>
-    body{font-family:Arial;margin:0;background:#f4f4f4}
-    header{background:#fff;padding:10px;border-bottom:1px solid #ccc}
-    input,button{padding:8px;margin:4px}
-    .board{display:flex;gap:10px;padding:10px;overflow:auto}
-    .col{background:#fff;padding:10px;width:220px;border:1px solid #ccc}
-    .card{border:1px solid #999;padding:6px;margin:6px 0}
-  </style>
-</head>
-<body>
-<header>
-  <h3>Ordini 3D - Laboratorio</h3>
-  <input id="cliente" placeholder="Cliente">
-  <input id="prodotto" placeholder="Prodotto">
-  <button onclick="add()">Aggiungi</button>
-</header>
+// ===============================
+//  CONFIG BASE (locale)
+// ===============================
+const LS_KEY = "ordini3d_v2_orders";
 
-<div class="board" id="board"></div>
+// STATI richiesti da te
+const STATI = [
+  { key: "PREPARAZIONE", label: "🟡 Preparazione (Da stampare)" },
+  { key: "STAMPA_FRONTALE", label: "🔵 Stampa frontale" },
+  { key: "STAMPA_POSTERIORE", label: "🟠 Stampa posteriore" },
+  { key: "SPEDIZIONE", label: "🟣 Spedizione" },
+  { key: "COMPLETATO", label: "🟢 Ordine completato" },
+];
 
-<script>
-const stati=["Da stampare","In stampa","Assemblaggio","QC","Spedito"];
-let ordini=JSON.parse(localStorage.getItem("ordini")||"[]");
-
-function save(){localStorage.setItem("ordini",JSON.stringify(ordini));render();}
-function add(){
-  const c=cliente.value,p=prodotto.value;
-  if(!c||!p)return alert("Compila tutto");
-  ordini.push({c,p,s:0});
-  cliente.value="";prodotto.value="";
-  save();
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
-function render(){
-  board.innerHTML="";
-  stati.forEach((st,i)=>{
-    const col=document.createElement("div");
-    col.className="col";
-    col.innerHTML="<b>"+st+"</b>";
-    ordini.filter(o=>o.s===i).forEach(o=>{
-      const card=document.createElement("div");
-      card.className="card";
-      card.innerHTML=o.c+"<br>"+o.p;
-      const btn=document.createElement("button");
-      btn.innerText="→";
-      btn.onclick=()=>{o.s=Math.min(4,o.s+1);save();}
-      card.appendChild(btn);
+function loadOrders() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
+  catch { return []; }
+}
+function saveOrders(arr) {
+  localStorage.setItem(LS_KEY, JSON.stringify(arr));
+}
+
+// ===============================
+//  DOM
+// ===============================
+const tabNew = document.getElementById("tab-new");
+const tabPrep = document.getElementById("tab-prep");
+
+const pageNew = document.getElementById("page-new");
+const pagePrep = document.getElementById("page-prep");
+const toolbarPrep = document.getElementById("toolbar-prep");
+
+const elBoard = document.getElementById("board");
+const elQ = document.getElementById("q");
+const refreshBtn = document.getElementById("refreshBtn");
+
+const cliente = document.getElementById("cliente");
+const sito = document.getElementById("sito");
+const progetto = document.getElementById("progetto");
+const prezzo = document.getElementById("prezzo");
+const note = document.getElementById("note");
+const addBtn = document.getElementById("addBtn");
+const newMsg = document.getElementById("newMsg");
+
+const weekStart = document.getElementById("weekStart");
+const exportWeekBtn = document.getElementById("exportWeekBtn");
+
+// ===============================
+//  STATE
+// ===============================
+let orders = loadOrders();
+
+// ===============================
+//  UI helpers
+// ===============================
+function setTab(active) {
+  const isNew = active === "new";
+  tabNew.classList.toggle("active", isNew);
+  tabPrep.classList.toggle("active", !isNew);
+
+  pageNew.classList.toggle("hide", !isNew);
+  pagePrep.classList.toggle("hide", isNew);
+  toolbarPrep.classList.toggle("hide", isNew);
+}
+
+function formatEuro(v) {
+  const n = Number(v);
+  if (Number.isNaN(n)) return "";
+  return n.toFixed(2);
+}
+
+function matches(o, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
+  return [o.cliente, o.sito_vendita, o.numero_progetto]
+    .filter(Boolean)
+    .some(v => String(v).toLowerCase().includes(q));
+}
+
+function nextStatusKey(key) {
+  const i = STATI.findIndex(s => s.key === key);
+  return STATI[Math.min(i + 1, STATI.length - 1)].key;
+}
+function prevStatusKey(key) {
+  const i = STATI.findIndex(s => s.key === key);
+  return STATI[Math.max(i - 1, 0)].key;
+}
+
+// ===============================
+//  RENDER BOARD
+// ===============================
+function render() {
+  if (!elBoard) return;
+  const q = (elQ?.value || "").trim();
+
+  elBoard.innerHTML = "";
+
+  STATI.forEach(s => {
+    const col = document.createElement("div");
+    col.className = "col";
+
+    const items = orders
+      .filter(o => o.stato === s.key)
+      .filter(o => matches(o, q))
+      .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+
+    const h2 = document.createElement("h2");
+    h2.innerHTML = `<span>${s.label}</span><span class="count">${items.length}</span>`;
+    col.appendChild(h2);
+
+    items.forEach(o => {
+      const card = document.createElement("div");
+      card.className = "card" + (o.stato === "COMPLETATO" ? " done" : "");
+
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = `${o.numero_progetto || "PROGETTO"} — €${formatEuro(o.prezzo)}`;
+      card.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.innerHTML = `
+        <div><b>Cliente:</b> ${o.cliente || "-"}</div>
+        <div><b>Sito vendita:</b> ${o.sito_vendita || "-"}</div>
+        <div><b>Note:</b> ${o.note ? o.note : "<span class='muted'>—</span>"}</div>
+      `;
+      card.appendChild(meta);
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      const bPrev = document.createElement("button");
+      bPrev.className = "small";
+      bPrev.textContent = "← Indietro";
+      bPrev.disabled = (o.stato === STATI[0].key);
+      bPrev.onclick = () => {
+        o.stato = prevStatusKey(o.stato);
+        saveOrders(orders);
+        render();
+      };
+
+      const bNext = document.createElement("button");
+      bNext.className = "small ok";
+      bNext.textContent = "Avanti →";
+      bNext.disabled = (o.stato === STATI[STATI.length - 1].key);
+      bNext.onclick = () => {
+        o.stato = nextStatusKey(o.stato);
+        saveOrders(orders);
+        render();
+      };
+
+      const bDel = document.createElement("button");
+      bDel.className = "small danger";
+      bDel.textContent = "Elimina";
+      bDel.onclick = () => {
+        if (!confirm("Eliminare questo ordine?")) return;
+        orders = orders.filter(x => x._uid !== o._uid);
+        saveOrders(orders);
+        render();
+      };
+
+      actions.appendChild(bPrev);
+      actions.appendChild(bNext);
+      actions.appendChild(bDel);
+      card.appendChild(actions);
+
       col.appendChild(card);
     });
-    board.appendChild(col);
+
+    elBoard.appendChild(col);
   });
 }
+
+// ===============================
+//  ADD ORDER (Pagina 1)
+// ===============================
+addBtn?.addEventListener("click", () => {
+  const c = cliente.value.trim();
+  const s = sito.value.trim();
+  const p = progetto.value.trim();
+  const pr = prezzo.value;
+
+  if (!c || !s || !p || pr === "") {
+    newMsg.textContent = "Compila Cliente, Sito vendita, Numero progetto e Prezzo.";
+    return;
+  }
+
+  const order = {
+    _uid: uid(),
+    cliente: c,
+    sito_vendita: s,
+    numero_progetto: p,
+    prezzo: Number(pr),
+    note: note.value.trim(),
+    stato: "PREPARAZIONE",
+    created_at: new Date().toISOString()
+  };
+
+  orders.unshift(order);
+  saveOrders(orders);
+
+  cliente.value = "";
+  sito.value = "";
+  progetto.value = "";
+  prezzo.value = "";
+  note.value = "";
+  newMsg.textContent = "Ordine inserito ✅ (vai su Preparazione)";
+
+  render();
+});
+
+// ===============================
+//  TABS
+// ===============================
+tabNew?.addEventListener("click", () => setTab("new"));
+tabPrep?.addEventListener("click", () => { setTab("prep"); render(); });
+
+// ===============================
+//  TOOLBAR
+// ===============================
+elQ?.addEventListener("input", render);
+refreshBtn?.addEventListener("click", () => { orders = loadOrders(); render(); });
+
+// ===============================
+//  EXCEL WEEKLY REPORT
+// ===============================
+function startOfWeekISO(d) {
+  // Lunedì come in Italia
+  const x = new Date(d);
+  const day = (x.getDay() + 6) % 7; // 0 lunedì
+  x.setDate(x.getDate() - day);
+  x.setHours(0,0,0,0);
+  return x;
+}
+
+function endOfWeekISO(start) {
+  const x = new Date(start);
+  x.setDate(x.getDate() + 7);
+  x.setHours(0,0,0,0);
+  return x;
+}
+
+exportWeekBtn?.addEventListener("click", () => {
+  if (!weekStart.value) {
+    alert("Seleziona la data di inizio settimana (lunedì consigliato).");
+    return;
+  }
+
+  const start = startOfWeekISO(weekStart.value);
+  const end = endOfWeekISO(start);
+
+  const rows = orders
+    .filter(o => {
+      const t = new Date(o.created_at).getTime();
+      return t >= start.getTime() && t < end.getTime();
+    })
+    .map(o => ({
+      Data: new Date(o.created_at).toLocaleString("it-IT"),
+      Cliente: o.cliente,
+      "Sito vendita": o.sito_vendita,
+      "Numero progetto": o.numero_progetto,
+      Prezzo: Number(o.prezzo || 0),
+      Stato: o.stato,
+      Note: o.note || ""
+    }));
+
+  const totalOrders = rows.length;
+  const totalPrice = rows.reduce((sum, r) => sum + (Number(r.Prezzo) || 0), 0);
+
+  // Sheet 1: ordini
+  const ws1 = XLSX.utils.json_to_sheet(rows);
+
+  // Sheet 2: riepilogo
+  const ws2 = XLSX.utils.aoa_to_sheet([
+    ["Settimana (inizio)", start.toLocaleDateString("it-IT")],
+    ["Settimana (fine)", new Date(end.getTime()-1).toLocaleDateString("it-IT")],
+    [],
+    ["Totale ordini", totalOrders],
+    ["Totale prezzo (€)", totalPrice]
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws1, "Ordini");
+  XLSX.utils.book_append_sheet(wb, ws2, "Riepilogo");
+
+  const fname = `report_ordini_${start.toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+});
+
+// ===============================
+//  BOOT
+// ===============================
+setTab("new");
 render();
-</script>
-</body>
-</html>
+
