@@ -1,6 +1,13 @@
-const LS_KEY = "ordini3d_orders_v3";
+/* =========================
+   ORDINI 3D - LAB APP.JS
+   ========================= */
+
+const STORAGE_KEY = "ordini3d_lab_v1";
+
+/* ---------- DATI ---------- */
 let orders = loadOrders();
 
+/* ---------- COSTANTI ---------- */
 const FLOW = {
   PREPARAZIONE: "PREPARAZIONE",
   ASSEMBLAGGIO: "ASSEMBLAGGIO",
@@ -9,306 +16,257 @@ const FLOW = {
 };
 
 const COLS = [
-  { id: "PREP", title: "🟡 Preparazione", bg: "#fff7cc", border: "#f1d36a" },
-  { id: "FRONTALE", title: "🔵 Stampa frontale", bg: "#e8f2ff", border: "#7fb0ff" },
-  { id: "POSTERIORE", title: "🟠 Stampa posteriore", bg: "#ffe9dc", border: "#ffb184" },
-  { id: "ASSEMBLAGGIO", title: "🟣 Assemblaggio", bg: "#f3e8ff", border: "#b68cff" },
-  { id: "SPEDIZIONE", title: "🟤 Spedizione", bg: "#f1efe9", border: "#cbbfa6" },
-  { id: "COMPLETATO", title: "🟢 Completato", bg: "#dfffe6", border: "#33c26b" },
+  { id: "PREP", title: "🟡 Preparazione" },
+  { id: "FRONTALE", title: "🔵 Stampa frontale" },
+  { id: "POSTERIORE", title: "🟠 Stampa posteriore" },
+  { id: "ASSEMBLAGGIO", title: "🟣 Assemblaggio" },
+  { id: "SPEDIZIONE", title: "🟤 Spedizione" },
+  { id: "COMPLETATO", title: "🟢 Completato" },
 ];
 
-function loadOrders(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||"[]"); }catch{ return []; } }
-function saveOrders(){ localStorage.setItem(LS_KEY, JSON.stringify(orders)); }
-
-function pad(n){ return String(n).padStart(2,"0"); }
-function fmtDT(iso){
-  if(!iso) return "-";
-  const d=new Date(iso);
-  return ${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())};
-}
-function dateKey(iso){
-  const d=new Date(iso);
-  return ${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())};
-}
-function euro(n){ const x=Number(n); return Number.isNaN(x) ? "0.00" : x.toFixed(2); }
-function touch(o){ o.updatedAt=new Date().toISOString(); }
-
-function $id(id){ return document.getElementById(id); }
-function hideAllPages(){
-  ["page-new","page-prep","page-sales"].forEach(id=>{
-    const el=$id(id); if(el) el.classList.add("hide");
-  });
-}
-function setActiveSafe(which){ try{ window.setActive(which); }catch{} }
-
-function showNew(){
-  hideAllPages();
-  const el=$id("page-new"); if(el) el.classList.remove("hide");
-  setActiveSafe("new");
-  refreshActiveTable();
-}
-function showPrep(){
-  hideAllPages();
-  const el=$id("page-prep"); if(el) el.classList.remove("hide");
-  setActiveSafe("prep");
-  render();
-}
-function showSales(){
-  hideAllPages();
-  const el=$id("page-sales"); if(el) el.classList.remove("hide");
-  setActiveSafe("sales");
-  refreshSales();
-}
-
-function addOrder(){
-  const cliente=($id("cliente")?.value||"").trim();
-  const sito=($id("sito")?.value||"").trim();
-  const articolo=($id("progetto")?.value||"").trim();
-  const prezzo=($id("prezzo")?.value||"").trim();
-  const note=($id("note")?.value||"").trim();
-
-  if(!cliente||!sito||!articolo||!prezzo){ alert("Compila Cliente, Sito vendita, Numero progetto e Prezzo."); return; }
-
-  const now=new Date().toISOString();
-  const id=`${articolo}__${Date.now()}`;
-
-  orders.unshift({
-    id, cliente, sito, articolo, prezzo, note,
-    flow: FLOW.PREPARAZIONE,
-    frontaleOK:false, posterioreOK:false,
-    createdAt: now, updatedAt: now, completedAt:null
-  });
-
-  saveOrders();
-  ["cliente","sito","progetto","prezzo","note"].forEach(x=>{ const el=$id(x); if(el) el.value=""; });
-  showPrep();
-}
-
-function autoToAssemblaggio(o){
-  if(o.flow===FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK){
-    o.flow=FLOW.ASSEMBLAGGIO; touch(o);
+/* ---------- UTILS ---------- */
+function loadOrders() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+  } catch {
+    return [];
   }
 }
-function setFrontaleOK(id){
-  const o=orders.find(x=>x.id===id); if(!o) return;
-  o.frontaleOK=true; touch(o); autoToAssemblaggio(o);
-  saveOrders(); render(); refreshActiveTable();
-}
-function setPosterioreOK(id){
-  const o=orders.find(x=>x.id===id); if(!o) return;
-  o.posterioreOK=true; touch(o); autoToAssemblaggio(o);
-  saveOrders(); render(); refreshActiveTable();
+
+function saveOrders() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
 }
 
-function goPrev(id){
-  const o=orders.find(x=>x.id===id); if(!o) return;
-  if(o.flow===FLOW.ASSEMBLAGGIO) o.flow=FLOW.PREPARAZIONE;
-  else if(o.flow===FLOW.SPEDIZIONE) o.flow=FLOW.ASSEMBLAGGIO;
-  else if(o.flow===FLOW.COMPLETATO) o.flow=FLOW.SPEDIZIONE;
-  touch(o); saveOrders(); render(); refreshActiveTable(); refreshSales();
-}
-function goNext(id){
-  const o=orders.find(x=>x.id===id); if(!o) return;
-  if(o.flow===FLOW.ASSEMBLAGGIO) o.flow=FLOW.SPEDIZIONE;
-  else if(o.flow===FLOW.SPEDIZIONE){ o.flow=FLOW.COMPLETATO; o.completedAt=new Date().toISOString(); }
-touch(o); saveOrders(); render(); refreshActiveTable(); refreshSales();
-}
-function removeOrder(id){
-  if(!confirm("Eliminare questo ordine?")) return;
-  orders=orders.filter(x=>x.id!==id);
-  saveOrders(); render(); refreshActiveTable(); refreshSales();
+function nowISO() {
+  return new Date().toISOString();
 }
 
-function inCol(o, colId){
-  if(colId==="PREP") return o.flow===FLOW.PREPARAZIONE;
-  if(colId==="FRONTALE") return o.flow===FLOW.PREPARAZIONE && !o.frontaleOK;
-  if(colId==="POSTERIORE") return o.flow===FLOW.PREPARAZIONE && !o.posterioreOK;
-  if(colId==="ASSEMBLAGGIO") return o.flow===FLOW.ASSEMBLAGGIO;
-  if(colId==="SPEDIZIONE") return o.flow===FLOW.SPEDIZIONE;
-  if(colId==="COMPLETATO") return o.flow===FLOW.COMPLETATO;
-  return false;
+function fmt(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return d.toLocaleDateString("it-IT") + " " + d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }
 
-function statusLabel(o){
-  if(o.flow===FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill ok"};
-  if(o.flow===FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill info"};
-  if(o.flow===FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill info"};
-  if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill warn"};
-  if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill warn"};
-  if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill warn"};
-  return {text:"PREPARAZIONE", cls:"pill warn"};
+function $(id) {
+  return document.getElementById(id);
 }
 
-function render(){
-  const board=$id("board"); if(!board) return;
-  board.innerHTML="";
-
-  COLS.forEach(colDef=>{
-    const col=document.createElement("div");
-    col.className="col";
-
-    const items=orders.filter(o=>inCol(o,colDef.id));
-    const h2=document.createElement("h2");
-    h2.innerHTML=`<span>${colDef.title}</span><span class="count">${items.length}</span>`;
-    col.appendChild(h2);
-
-    items.forEach(o=>{
-      const card=document.createElement("div");
-      card.className="card"+(o.flow===FLOW.COMPLETATO?" done":"");
-      card.style.background=colDef.bg;
-      card.style.borderColor=colDef.border;
-
-      card.innerHTML=`
-        <div class="title">${o.articolo} — € ${euro(o.prezzo)}</div>
-        <div class="meta">
-          <b>Cliente:</b> ${o.cliente}<br>
-          <b>Sito:</b> ${o.sito}<br>
-          <b>Frontale:</b> ${o.frontaleOK?"OK ✅":"NO ❌"} &nbsp;|&nbsp;
-          <b>Posteriore:</b> ${o.posterioreOK?"OK ✅":"NO ❌"}<br>
-          <b>Creato:</b> ${fmtDT(o.createdAt)}<br>
-          <b>Agg.:</b> ${fmtDT(o.updatedAt)}
-          ${o.note?`<br><b>Note:</b> ${o.note}`:""}
-        </div>
-      `;
-
-      const actions=document.createElement("div");
-      actions.className="actions";
-
-      if(colDef.id==="FRONTALE"){
-        const b=document.createElement("button");
-        b.className="small ok"; b.textContent="OK Frontale ✔";
-        b.onclick=()=>setFrontaleOK(o.id);
-        actions.appendChild(b);
-      } else if(colDef.id==="POSTERIORE"){
-        const b=document.createElement("button");
-        b.className="small ok"; b.textContent="OK Posteriore ✔";
-        b.onclick=()=>setPosterioreOK(o.id);
-        actions.appendChild(b);
-      } else if(colDef.id==="ASSEMBLAGGIO" || colDef.id==="SPEDIZIONE"){
-        const prev=document.createElement("button");
-        prev.className="small"; prev.textContent="← Indietro";
-        prev.onclick=()=>goPrev(o.id);
-
-        const next=document.createElement("button");
-        next.className="small ok"; next.textContent="Avanti →";
-        next.onclick=()=>goNext(o.id);
-
-        actions.appendChild(prev); actions.appendChild(next);
-      } else if(colDef.id==="COMPLETATO"){
-        const prev=document.createElement("button");
-        prev.className="small"; prev.textContent="← Indietro";
-        prev.onclick=()=>goPrev(o.id);
-        actions.appendChild(prev);
-      } else if(colDef.id==="PREP"){
-        const del=document.createElement("button");
-        del.className="small danger"; del.textContent="Elimina";
-        del.onclick=()=>removeOrder(o.id);
-        actions.appendChild(del);
-      }
-
-      card.appendChild(actions);
-      col.appendChild(card);
-    });
-
-    board.appendChild(col);
+/* ---------- NAV ---------- */
+function hideAll() {
+  ["page-new", "page-prep", "page-sales"].forEach(id => {
+    const el = $(id);
+    if (el) el.classList.add("hide");
   });
 }
 
-function refreshActiveTable(){
-  const tbody=$id("activeTbody"); if(!tbody) return;
-  const actives=orders.
-filter(o=>o.flow!==FLOW.COMPLETATO);
-  tbody.innerHTML="";
+function showNew() {
+  hideAll();
+  $("page-new")?.classList.remove("hide");
+  refreshActiveTable();
+}
 
-  if(actives.length===0){
-    tbody.innerHTML=`<tr><td colspan="7" class="muted">Nessun ordine attivo.</td></tr>`;
+function showPrep() {
+  hideAll();
+  $("page-prep")?.classList.remove("hide");
+  renderBoard();
+}
+
+/* ---------- NUOVO ORDINE ---------- */
+function addOrder() {
+  const cliente = $("cliente")?.value.trim();
+  const sito = $("sito")?.value.trim();
+  const articolo = $("progetto")?.value.trim();
+  const prezzo = $("prezzo")?.value.trim();
+  const note = $("note")?.value.trim();
+
+  if (!cliente  !sito  !articolo || !prezzo) {
+    alert("Compila tutti i campi obbligatori");
     return;
   }
 
-  actives.forEach(o=>{
-    const st=statusLabel(o);
-    const tr=document.createElement("tr");
-    tr.innerHTML=`
+  const order = {
+    id: articolo + "_" + Date.now(),
+    cliente,
+    sito,
+    articolo,
+    prezzo: Number(prezzo),
+    note,
+    flow: FLOW.PREPARAZIONE,
+    frontaleOK: false,
+    posterioreOK: false,
+    createdAt: nowISO(),
+    updatedAt: nowISO(),
+    completedAt: null,
+  };
+
+  orders.unshift(order);
+  saveOrders();
+
+  ["cliente", "sito", "progetto", "prezzo", "note"].forEach(id => {
+    if ($(id)) $(id).value = "";
+  });
+
+  showPrep();
+}
+
+/* ---------- LOGICA PRODUZIONE ---------- */
+function autoToAssemblaggio(o) {
+  if (
+    o.flow === FLOW.PREPARAZIONE &&
+    o.frontaleOK &&
+    o.posterioreOK
+  ) {
+    o.flow = FLOW.ASSEMBLAGGIO;
+    o.updatedAt = nowISO();
+  }
+}
+
+function setFrontaleOK(id) {
+  const o = orders.find(x => x.id === id);
+  if (!o) return;
+  o.frontaleOK = true;
+  o.updatedAt = nowISO();
+  autoToAssemblaggio(o);
+  saveOrders();
+  renderBoard();
+  refreshActiveTable();
+}
+
+function setPosterioreOK(id) {
+  const o = orders.find(x => x.id === id);
+  if (!o) return;
+  o.posterioreOK = true;
+  o.updatedAt = nowISO();
+  autoToAssemblaggio(o);
+  saveOrders();
+  renderBoard();
+  refreshActiveTable();
+}
+
+function goNext(id) {
+  const o = orders.find(x => x.id === id);
+  if (!o) return;
+
+  if (o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.SPEDIZIONE;
+  else if (o.flow === FLOW.SPEDIZIONE) {
+    o.flow = FLOW.COMPLETATO;
+    o.completedAt = nowISO();
+  }
+
+  o.updatedAt = nowISO();
+  saveOrders();
+  renderBoard();
+  refreshActiveTable();
+}
+
+function goPrev(id) {
+  const o = orders.find(x => x.id === id);
+  if (!o) return;
+
+  if (o.flow === FLOW.SPEDIZIONE) o.flow = FLOW.ASSEMBLAGGIO;
+  else if (o.flow === FLOW.COMPLETATO) o.flow = FLOW.SPEDIZIONE;
+
+  o.updatedAt = nowISO();
+  saveOrders();
+  renderBoard();
+  refreshActiveTable();
+}
+
+/* ---------- FILTRI COLONNE ---------- */
+function inColumn(o, col) {
+  if (col === "PREP") return o.flow === FLOW.PREPARAZIONE;
+  if (col === "FRONTALE") return o.flow === FLOW.PREPARAZIONE && !o.frontaleOK;
+  if (col === "POSTERIORE") return o.flow === FLOW.PREPARAZIONE && !o.posterioreOK;
+if (col === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
+  if (col === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
+  if (col === "COMPLETATO") return o.flow === FLOW.COMPLETATO;
+  return false;
+}
+
+/* ---------- BOARD ---------- */
+function renderBoard() {
+  const board = $("board");
+  if (!board) return;
+  board.innerHTML = "";
+
+  COLS.forEach(col => {
+    const colEl = document.createElement("div");
+    colEl.className = "col";
+
+    const title = document.createElement("h2");
+    const items = orders.filter(o => inColumn(o, col.id));
+    title.innerHTML = <span>${col.title}</span><span class="count">${items.length}</span>;
+    colEl.appendChild(title);
+
+    items.forEach(o => {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      card.innerHTML = `
+        <div class="title">${o.articolo} — € ${o.prezzo.toFixed(2)}</div>
+        <div class="meta">
+          <b>Cliente:</b> ${o.cliente}<br>
+          <b>Sito:</b> ${o.sito}<br>
+          <b>Frontale:</b> ${o.frontaleOK ? "OK ✅" : "NO ❌"} |
+          <b>Posteriore:</b> ${o.posterioreOK ? "OK ✅" : "NO ❌"}<br>
+          <b>Creato:</b> ${fmt(o.createdAt)}<br>
+          <b>Agg.:</b> ${fmt(o.updatedAt)}
+        </div>
+      `;
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      if (col.id === "FRONTALE") {
+        actions.innerHTML = <button class="small ok" onclick="setFrontaleOK('${o.id}')">OK Frontale</button>;
+      } else if (col.id === "POSTERIORE") {
+        actions.innerHTML = <button class="small ok" onclick="setPosterioreOK('${o.id}')">OK Posteriore</button>;
+      } else if (col.id === "ASSEMBLAGGIO" || col.id === "SPEDIZIONE") {
+        actions.innerHTML = `
+          <button class="small" onclick="goPrev('${o.id}')">←</button>
+          <button class="small ok" onclick="goNext('${o.id}')">→</button>
+        `;
+      } else if (col.id === "COMPLETATO") {
+        actions.innerHTML = <button class="small" onclick="goPrev('${o.id}')">←</button>;
+      }
+
+      card.appendChild(actions);
+      colEl.appendChild(card);
+    });
+
+    board.appendChild(colEl);
+  });
+}
+
+/* ---------- TABELLA ORDINI ATTIVI ---------- */
+function refreshActiveTable() {
+  const tbody = $("activeTbody");
+  if (!tbody) return;
+
+  const active = orders.filter(o => o.flow !== FLOW.COMPLETATO);
+  tbody.innerHTML = "";
+
+  if (active.length === 0) {
+    tbody.innerHTML = <tr><td colspan="7">Nessun ordine attivo</td></tr>;
+    return;
+  }
+
+  active.forEach(o => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
       <td>${o.articolo}</td>
       <td>${o.cliente}</td>
       <td>${o.sito}</td>
-      <td>€ ${euro(o.prezzo)}</td>
-      <td><span class="${st.cls}">${st.text}</span></td>
-      <td>${fmtDT(o.createdAt)}</td>
-      <td>${fmtDT(o.updatedAt)}</td>
+      <td>€ ${o.prezzo.toFixed(2)}</td>
+      <td>${o.flow}</td>
+      <td>${fmt(o.createdAt)}</td>
+      <td>${fmt(o.updatedAt)}</td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-const SALES_UNLOCK_KEY="ordini3d_sales_unlocked";
-function openSales(){
-  const unlocked=sessionStorage.getItem(SALES_UNLOCK_KEY)==="1";
-  if(!unlocked){
-    const pass=prompt("Password Vendite:");
-    if(pass!=="0000"){ alert("Password errata."); return; }
-    sessionStorage.setItem(SALES_UNLOCK_KEY,"1");
-  }
-  showSales();
-}
-function lockSales(){
-  sessionStorage.removeItem(SALES_UNLOCK_KEY);
-  alert("Vendite bloccate.");
+/* ---------- AVVIO ---------- */
+document.addEventListener("DOMContentLoaded", () => {
   showNew();
-}
-function refreshSales(){
-  const wrap=$id("salesWrap"); if(!wrap) return;
-
-  const completed=orders.filter(o=>o.flow===FLOW.COMPLETATO).slice()
-    .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
-
-  if(completed.length===0){
-    wrap.innerHTML=`<div class="muted">Nessuna vendita per ora.</div>`;
-    return;
-  }
-
-  const map=new Map();
-  completed.forEach(o=>{
-    const k=dateKey(o.completedAt||o.updatedAt||o.createdAt);
-    if(!map.has(k)) map.set(k,[]);
-    map.get(k).push(o);
-  });
-
-  const days=Array.from(map.keys()).sort((a,b)=>b.localeCompare(a));
-  wrap.innerHTML="";
-
-  days.forEach(day=>{
-    const arr=map.get(day);
-    const total=arr.reduce((s,o)=>s+(Number(o.prezzo)||0),0);
-
-    const block=document.createElement("div");
-    block.className="panel";
-    block.style.marginBottom="12px";
-
-    block.innerHTML=`
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <b>${day}</b>
-        <span class="pill ok">Totale € ${euro(total)} • Ordini ${arr.length}</span>
-      </div>
-
-      <table>
-        <thead><tr><th>Ora</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th></tr></thead>
-        <tbody>
-          ${arr.map(o=>`
-            <tr>
-              <td>${(fmtDT(o.completedAt).split(" ")[1]||"-")}</td>
-              <td>${o.articolo}</td>
-              <td>${o.cliente}</td>
-              <td>${o.sito}</td>
-              <td>€ ${euro(o.prezzo)}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
-    wrap.appendChild(block);
-  });
-}
-
-// AVVIO
-showNew();
+});
