@@ -1,21 +1,28 @@
-// Stato semplice in memoria (per iniziare)
+// ====== DATI ======
 let orders = [];
 
-// Mostra pagina nuovo ordine
+const STATI = [
+  "Preparazione",
+  "Stampa frontale",
+  "Stampa posteriore",
+  "Spedizione",
+  "Completato"
+];
+
+// ====== NAVIGAZIONE ======
 function showNew() {
-  document.getElementById("new").classList.remove("hide");
-  document.getElementById("prep").classList.add("hide");
+  document.getElementById("page-new").classList.remove("hidden");
+  document.getElementById("page-prep").classList.add("hidden");
 }
 
-// Mostra pagina preparazione
 function showPrep() {
-  document.getElementById("new").classList.add("hide");
-  document.getElementById("prep").classList.remove("hide");
+  document.getElementById("page-new").classList.add("hidden");
+  document.getElementById("page-prep").classList.remove("hidden");
   render();
 }
 
-// Aggiunge un ordine
-function add() {
+// ====== AGGIUNGI ORDINE ======
+function addOrder() {
   const cliente = document.getElementById("cliente").value;
   const sito = document.getElementById("sito").value;
   const progetto = document.getElementById("progetto").value;
@@ -23,7 +30,7 @@ function add() {
   const note = document.getElementById("note").value;
 
   if (!cliente || !sito || !progetto || !prezzo) {
-    alert("Compila tutti i campi principali");
+    alert("Compila tutti i campi obbligatori");
     return;
   }
 
@@ -45,33 +52,28 @@ function add() {
   showPrep();
 }
 
-// Disegna la board
+// ====== RENDER BOARD ======
 function render() {
   const board = document.getElementById("board");
   board.innerHTML = "";
 
-  const stati = [
-    "Preparazione",
-    "Stampa frontale",
-    "Stampa posteriore",
-    "Spedizione",
-    "Completato"
-  ];
-
-  stati.forEach((nome, i) => {
+  STATI.forEach((nome, index) => {
     const col = document.createElement("div");
     col.className = "col";
-    col.innerHTML = "<b>" + nome + "</b>";
+    col.innerHTML = `<b>${nome}</b>`;
 
-    orders.filter(o => o.stato === i).forEach(o => {
+    orders.filter(o => o.stato === index).forEach(o => {
       const card = document.createElement("div");
-      card.className = "card" + (i === 4 ? " done" : "");
+      card.className = "card" + (index === 4 ? " done" : "");
+
       card.innerHTML = `
         <div><b>${o.progetto}</b></div>
         <div>${o.cliente}</div>
+        <div>${o.sito}</div>
         <div>€ ${o.prezzo}</div>
-        <button onclick="next(this)">Avanti</button>
+        <button onclick="nextOrder('${o.progetto}')">Avanti</button>
       `;
+
       col.appendChild(card);
     });
 
@@ -79,13 +81,14 @@ function render() {
   });
 }
 
-// Avanza stato
-function next(btn) {
-  const progetto = btn.parentElement.querySelector("b").innerText;
-  const o = orders.find(x => x.progetto === progetto);
-  if (o && o.stato < 4) o.stato++;
-  render();
+// ====== AVANZA STATO ======
+function nextOrder(progetto) {
+  const ordine = orders.find(o => o.progetto === progetto);
+  if (ordine && ordine.stato < 4) {
+    ordine.stato++;
+    render();
+  }
 }
 
-// Avvio
+// ====== AVVIO ======
 showNew();
