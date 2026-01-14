@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="it">
 <head>
@@ -56,7 +55,6 @@
 <header>
   <div class="row">
     <h1>Ordini 3D - Laboratorio</h1>
-
     <div class="tabs">
       <button class="tab active" id="tab-new" onclick="showNew(); setActive('new')">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep(); setActive('prep')">Produzione</button>
@@ -66,7 +64,7 @@
 </header>
 
 <div class="wrap">
-  <!-- PAGINA NUOVO ORDINE -->
+  <!-- NUOVO ORDINE -->
   <div id="page-new" class="panel">
     <div class="grid2">
       <div>
@@ -93,7 +91,7 @@
     </div>
 <div class="row" style="margin-top:10px">
       <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-      <span class="muted">Comparirà in Produzione (con data/ora).</span>
+      <span class="muted">Comparirà in Produzione con data/ora.</span>
     </div>
 
     <div style="margin-top:14px">
@@ -101,18 +99,12 @@
         <b>Ordini attivi</b>
         <button class="small" onclick="refreshActiveTable()">Aggiorna</button>
       </div>
-      <div class="muted">Sotto vedi gli ordini non completati + stato attuale.</div>
+      <div class="muted">Ordini non completati + stato attuale.</div>
 
       <table>
         <thead>
           <tr>
-            <th>Articolo</th>
-            <th>Cliente</th>
-            <th>Sito</th>
-            <th>€</th>
-            <th>Stato</th>
-            <th>Creato</th>
-            <th>Aggiornato</th>
+            <th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th><th>Stato</th><th>Creato</th><th>Aggiornato</th>
           </tr>
         </thead>
         <tbody id="activeTbody"></tbody>
@@ -120,17 +112,17 @@
     </div>
   </div>
 
-  <!-- PAGINA PRODUZIONE -->
+  <!-- PRODUZIONE -->
   <div id="page-prep" class="hide">
     <div class="panel">
       <div class="muted" style="margin-bottom:10px">
-        Regola: l’ordine va in <b>Assemblaggio</b> SOLO quando <b>Frontale OK</b> e <b>Posteriore OK</b>.
+        Regola: in <b>Assemblaggio</b> SOLO con <b>Frontale OK</b> + <b>Posteriore OK</b>.
       </div>
       <div class="board" id="board"></div>
     </div>
   </div>
 
-  <!-- PAGINA VENDITE (protetta) -->
+  <!-- VENDITE (protetta) -->
   <div id="page-sales" class="hide">
     <div class="panel">
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -140,10 +132,7 @@
           <button class="small danger" onclick="lockSales()">Blocca</button>
         </div>
       </div>
-      <div class="muted">
-        Qui entrano solo ordini <b>Completati</b>. Raggruppati per giorno con totale €.
-      </div>
-
+      <div class="muted">Solo ordini <b>Completati</b>, raggruppati per giorno con totale €.</div>
       <div id="salesWrap" style="margin-top:12px"></div>
     </div>
   </div>
