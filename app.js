@@ -1,7 +1,5 @@
-// ====== DATI (locale) ======
 let orders = [];
 
-// Stati "macro" (flusso reale)
 const FLOW = {
   PREPARAZIONE: "PREPARAZIONE",
   ASSEMBLAGGIO: "ASSEMBLAGGIO",
@@ -9,18 +7,15 @@ const FLOW = {
   COMPLETATO: "COMPLETATO",
 };
 
-// Colonne board (vista produzione)
-// NOTA: Stampa frontale/posteriore sono "code di lavoro" basate sui flag OK, NON sullo stato.
 const COLS = [
   { id: "PREP", title: "🟡 Preparazione", bg: "#fff7cc", border: "#f1d36a" },
-  { id: "FRONTALE", title: "🔵 Stampa frontale (OK)", bg: "#e8f2ff", border: "#7fb0ff" },
-  { id: "POSTERIORE", title: "🟠 Stampa posteriore (OK)", bg: "#ffe9dc", border: "#ffb184" },
+  { id: "FRONTALE", title: "🔵 Stampa frontale", bg: "#e8f2ff", border: "#7fb0ff" },
+  { id: "POSTERIORE", title: "🟠 Stampa posteriore", bg: "#ffe9dc", border: "#ffb184" },
   { id: "ASSEMBLAGGIO", title: "🟣 Assemblaggio", bg: "#f3e8ff", border: "#b68cff" },
   { id: "SPEDIZIONE", title: "🟤 Spedizione", bg: "#f1efe9", border: "#cbbfa6" },
   { id: "COMPLETATO", title: "🟢 Completato", bg: "#dfffe6", border: "#33c26b" },
 ];
 
-// ====== NAV ======
 function showNew() {
   document.getElementById("page-new").classList.remove("hide");
   document.getElementById("page-prep").classList.add("hide");
@@ -31,11 +26,10 @@ function showPrep() {
   render();
 }
 
-// ====== CREAZIONE ORDINE ======
 function addOrder() {
   const cliente = document.getElementById("cliente").value.trim();
   const sito = document.getElementById("sito").value.trim();
-  const articolo = document.getElementById("progetto").value.trim(); // numero progetto = articolo
+  const articolo = document.getElementById("progetto").value.trim();
   const prezzo = document.getElementById("prezzo").value.trim();
   const note = document.getElementById("note").value.trim();
 
@@ -44,7 +38,6 @@ function addOrder() {
     return;
   }
 
-  // id semplice
   const id = `${articolo}__${Date.now()}`;
 
   orders.unshift({
@@ -60,34 +53,35 @@ function addOrder() {
     createdAt: new Date().toISOString(),
   });
 
-  // reset form
   ["cliente","sito","progetto","prezzo","note"].forEach(x => document.getElementById(x).value = "");
   showPrep();
 }
 
-// ====== HELPERS ======
+// ====== REGOLE OK STAMPA (DUE STANZE) ======
 function setFrontaleOK(id) {
   const o = orders.find(x => x.id === id);
   if (!o) return;
   o.frontaleOK = true;
-  autoAdvanceToAssemblaggio(o);
+  autoToAssemblaggio(o);
   render();
 }
+
 function setPosterioreOK(id) {
   const o = orders.find(x => x.id === id);
   if (!o) return;
   o.posterioreOK = true;
-  autoAdvanceToAssemblaggio(o);
+  autoToAssemblaggio(o);
   render();
 }
 
-function autoAdvanceToAssemblaggio(o) {
-  // Se entrambi i pezzi sono OK e siamo ancora in preparazione -> passa ad assemblaggio
+// Appena entrambi OK -> Assemblaggio
+function autoToAssemblaggio(o) {
   if (o.flow === FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK) {
     o.flow = FLOW.ASSEMBLAGGIO;
   }
 }
 
+// ====== AVANZAMENTO SOLO DOPO ASSEMBLAGGIO ======
 function goPrev(id) {
   const o = orders.find(x => x.id === id);
   if (!o) return;
@@ -96,18 +90,13 @@ function goPrev(id) {
   else if (o.flow === FLOW.SPEDIZIONE) o.flow = FLOW.ASSEMBLAGGIO;
   else if (o.flow === FLOW.COMPLETATO) o.flow = FLOW.SPEDIZIONE;
 
+  // se torni in PREPARAZIONE, NON resettiamo gli OK (a meno che tu lo voglia)
   render();
 }
 
 function goNext(id) {
   const o = orders.find(x => x.id === id);
   if (!o) return;
-
-  // regola: NON puoi assemblare se non sono ok entrambi
-  if (o.flow === FLOW.PREPARAZIONE) {
-    alert("Non puoi andare avanti manualmente. Devono fare OK Frontale e OK Posteriore.");
-    return;
-  }
 
   if (o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.SPEDIZIONE;
   else if (o.flow === FLOW.SPEDIZIONE) o.flow = FLOW.COMPLETATO;
@@ -121,18 +110,15 @@ function removeOrder(id) {
   render();
 }
 
-// ====== SELEZIONE ORDINI PER COLONNA ======
+// ====== FILTRI COLONNE ======
 function inCol(o, colId) {
-  // PREPARAZIONE: tutti quelli con flow PREPARAZIONE (anche se pezzi non ok)
   if (colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
 
-  // STAMPA FRONTALE: quelli NON ancora frontaleOK e ancora non completati
+  // due stanze: vedono SOLO quelli non ok del loro pezzo
   if (colId === "FRONTALE") return o.flow === FLOW.PREPARAZIONE && !o.frontaleOK;
-
-  // STAMPA POSTERIORE: quelli NON ancora posterioreOK e ancora non completati
   if (colId === "POSTERIORE") return o.flow === FLOW.PREPARAZIONE && !o.posterioreOK;
 
-  // ASSEMBLAGGIO: SOLO se flow=ASSEMBLAGGIO (che arriva solo con ok ok)
+  // assemblaggio SOLO dopo doppio OK (autoToAssemblaggio)
   if (colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
 
   if (colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
@@ -162,13 +148,12 @@ function render() {
       card.style.background = colDef.bg;
       card.style.borderColor = colDef.border;
 
-      // articolo = numero progetto
       card.innerHTML = `
         <div class="title">${o.articolo} — € ${o.prezzo}</div>
         <div class="meta">
           <b>Cliente:</b> ${o.cliente}<br>
           <b>Sito:</b> ${o.sito}<br>
-          <b>Frontale:</b> ${o.frontaleOK ? "OK ✅" : "NO ❌"} &nbsp; | &nbsp;
+          <b>Frontale:</b> ${o.frontaleOK ? "OK ✅" : "NO ❌"} &nbsp;|&nbsp;
           <b>Posteriore:</b> ${o.posterioreOK ? "OK ✅" : "NO ❌"}
           ${o.note ? `<br><b>Note:</b> ${o.note}` : ""}
         </div>
@@ -177,20 +162,22 @@ function render() {
       const actions = document.createElement("div");
       actions.className = "actions";
 
-      // Bottoni diversi per colonna
+      // ---- BOTTONI BLINDATI PER COLONNA ----
       if (colDef.id === "FRONTALE") {
         const b = document.createElement("button");
         b.className = "small ok";
         b.textContent = "OK Frontale ✔";
         b.onclick = () => setFrontaleOK(o.id);
         actions.appendChild(b);
-      } else if (colDef.id === "POSTERIORE") {
+      }
+      else if (colDef.id === "POSTERIORE") {
         const b = document.createElement("button");
         b.className = "small ok";
         b.textContent = "OK Posteriore ✔";
         b.onclick = () => setPosterioreOK(o.id);
         actions.appendChild(b);
-      } else if (colDef.id === "ASSEMBLAGGIO" || colDef.id === "SPEDIZIONE") {
+      }
+      else if (colDef.id === "ASSEMBLAGGIO" || colDef.id === "SPEDIZIONE") {
         const prev = document.createElement("button");
         prev.className = "small";
         prev.textContent = "← Indietro";
@@ -203,15 +190,16 @@ function render() {
 
         actions.appendChild(prev);
         actions.appendChild(next);
-      } else if (colDef.id === "COMPLETATO") {
-        // niente avanti
+      }
+      else if (colDef.id === "COMPLETATO") {
         const prev = document.createElement("button");
         prev.className = "small";
         prev.textContent = "← Indietro";
         prev.onclick = () => goPrev(o.id);
         actions.appendChild(prev);
-      } else if (colDef.id === "PREP") {
-        // in preparazione: solo elimina (e info)
+      }
+      else if (colDef.id === "PREP") {
+        // NESSUN AVANTI QUI. SOLO elimina (se vuoi)
         const del = document.createElement("button");
         del.className = "small danger";
         del.textContent = "Elimina";
@@ -227,5 +215,4 @@ function render() {
   });
 }
 
-// Avvio
 showNew();
