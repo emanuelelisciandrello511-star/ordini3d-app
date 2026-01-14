@@ -1,4 +1,3 @@
-// ====== DATI ======
 let orders = [];
 
 const STATI = [
@@ -9,39 +8,29 @@ const STATI = [
   "Completato"
 ];
 
-// ====== NAVIGAZIONE ======
 function showNew() {
-  document.getElementById("page-new").classList.remove("hidden");
-  document.getElementById("page-prep").classList.add("hidden");
+  document.getElementById("page-new").classList.remove("hide");
+  document.getElementById("page-prep").classList.add("hide");
 }
-
 function showPrep() {
-  document.getElementById("page-new").classList.add("hidden");
-  document.getElementById("page-prep").classList.remove("hidden");
+  document.getElementById("page-new").classList.add("hide");
+  document.getElementById("page-prep").classList.remove("hide");
   render();
 }
 
-// ====== AGGIUNGI ORDINE ======
 function addOrder() {
-  const cliente = document.getElementById("cliente").value;
-  const sito = document.getElementById("sito").value;
-  const progetto = document.getElementById("progetto").value;
-  const prezzo = document.getElementById("prezzo").value;
-  const note = document.getElementById("note").value;
+  const cliente = document.getElementById("cliente").value.trim();
+  const sito = document.getElementById("sito").value.trim();
+  const progetto = document.getElementById("progetto").value.trim();
+  const prezzo = document.getElementById("prezzo").value.trim();
+  const note = document.getElementById("note").value.trim();
 
   if (!cliente || !sito || !progetto || !prezzo) {
-    alert("Compila tutti i campi obbligatori");
+    alert("Compila Cliente, Sito vendita, Numero progetto e Prezzo.");
     return;
   }
 
-  orders.push({
-    cliente,
-    sito,
-    progetto,
-    prezzo,
-    note,
-    stato: 0
-  });
+  orders.push({ cliente, sito, progetto, prezzo, note, stato: 0 });
 
   document.getElementById("cliente").value = "";
   document.getElementById("sito").value = "";
@@ -52,7 +41,6 @@ function addOrder() {
   showPrep();
 }
 
-// ====== RENDER BOARD ======
 function render() {
   const board = document.getElementById("board");
   board.innerHTML = "";
@@ -60,18 +48,22 @@ function render() {
   STATI.forEach((nome, index) => {
     const col = document.createElement("div");
     col.className = "col";
-    col.innerHTML = `<b>${nome}</b>`;
+    col.innerHTML = `<h2><span>${nome}</span><span class="count"></span></h2>`;
 
-    orders.filter(o => o.stato === index).forEach(o => {
+    const items = orders.filter(o => o.stato === index);
+
+    col.querySelector(".count").textContent = items.length;
+
+    items.forEach(o => {
       const card = document.createElement("div");
       card.className = "card" + (index === 4 ? " done" : "");
 
       card.innerHTML = `
-        <div><b>${o.progetto}</b></div>
-        <div>${o.cliente}</div>
-        <div>${o.sito}</div>
-        <div>€ ${o.prezzo}</div>
-        <button onclick="nextOrder('${o.progetto}')">Avanti</button>
+        <div class="title">${o.progetto} — € ${o.prezzo}</div>
+        <div class="meta"><b>Cliente:</b> ${o.cliente}<br><b>Sito:</b> ${o.sito}${o.note ? `<br><b>Note:</b> ${o.note}` : ""}</div>
+        <div class="actions">
+          <button class="small ok" onclick="nextOrder('${o.progetto}')">Avanti →</button>
+        </div>
       `;
 
       col.appendChild(card);
@@ -81,7 +73,6 @@ function render() {
   });
 }
 
-// ====== AVANZA STATO ======
 function nextOrder(progetto) {
   const ordine = orders.find(o => o.progetto === progetto);
   if (ordine && ordine.stato < 4) {
@@ -90,5 +81,6 @@ function nextOrder(progetto) {
   }
 }
 
-// ====== AVVIO ======
+// Avvio
 showNew();
+
