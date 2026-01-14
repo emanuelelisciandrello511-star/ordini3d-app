@@ -1,47 +1,30 @@
-
 <!doctype html>
-<html lang="it">
+<html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ordini 3D - Lab</title>
+  <title>TEST NUOVO SITO</title>
   <style>
-    body { font-family: Arial, sans-serif; margin:0; background:#f4f4f4 }
-    header { background:#fff; padding:15px; border-bottom:1px solid #ccc }
-    h1 { margin:0; font-size:20px }
-    button { padding:8px 12px; margin:5px; cursor:pointer }
-    input, textarea { padding:8px; width:100%; margin-bottom:10px; box-sizing:border-box }
-    .container { padding:15px }
-    .hidden { display:none }
-    .board { display:flex; gap:10px; overflow-x:auto }
-    .col { background:#fff; border:1px solid #ccc; border-radius:6px; padding:10px; min-width:220px }
-    .card { border:1px solid #aaa; border-radius:6px; padding:8px; margin:6px 0 }
-    .done { background:#d9ffd9 }
+    body { background: black; color: lime; font-family: monospace; padding:20px }
+    button { padding:10px; font-size:16px }
   </style>
 </head>
-
 <body>
-<header>
-  <h1>Organizzazione Ordini 3D</h1>
-  <button onclick="showNew()">Nuovo ordine</button>
-  <button onclick="showPrep()">Preparazione</button>
-</header>
 
-<div class="container">
-  <div id="page-new">
-    <h3>Inserisci nuovo ordine</h3>
-    <input id="cliente" placeholder="Cliente">
-    <input id="sito" placeholder="Sito vendita (Etsy, Shopify…)">
-    <input id="progetto" placeholder="Numero progetto">
-    <input id="prezzo" type="number" placeholder="Prezzo €">
-    <textarea id="note" placeholder="Note ordine"></textarea>
-    <button onclick="addOrder()">Invia ordine</button>
-  </div>
+<h1>✅ VERSIONE NUOVA ATTIVA</h1>
 
-  <div id="page-prep" class="hidden">
-    <h3>Preparazione ordini</h3>
-    <div class="board" id="board"></div>
-  </div>
+<p>Se vedi questa schermata verde su nero,<br>
+significa che Netlify sta leggendo QUESTO index.html.</p>
+
+<button onclick="showNew()">Nuovo ordine</button>
+<button onclick="showPrep()">Preparazione</button>
+
+<div id="page-new">
+  <p>Pagina nuovo ordine</p>
+</div>
+
+<div id="page-prep" style="display:none">
+  <p>Pagina preparazione</p>
+  <div id="board"></div>
 </div>
 
 <script src="app.js"></script>
