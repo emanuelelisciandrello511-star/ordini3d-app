@@ -1,51 +1,52 @@
 <!doctype html>
 <html lang="it">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Ordini 3D - Laboratorio</title>
-
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ordini 3D - Lab</title>
   <style>
-    body{font-family:Arial;margin:0;background:#f6f7fb}
-    header{background:#fff;padding:12px;border-bottom:1px solid #ddd}
-    h1{font-size:18px;margin:0}
-    .row{display:flex;gap:10px;flex-wrap:wrap}
-    input,button,textarea{padding:8px;border:1px solid #ccc;border-radius:6px}
-    button{cursor:pointer}
-    .panel{background:#fff;margin:12px;padding:12px;border-radius:8px}
-    .hide{display:none}
-    .board{display:flex;gap:10px;overflow:auto}
-    .col{background:#fff;border:1px solid #ccc;border-radius:8px;padding:8px;min-width:220px}
-    .card{border:1px solid #aaa;border-radius:6px;padding:6px;margin:6px 0}
-    .done{background:#e8ffe8}
+    body { font-family: Arial, sans-serif; margin:0; background:#f4f4f4 }
+    header { background:#fff; padding:15px; border-bottom:1px solid #ccc }
+    h1 { margin:0; font-size:20px }
+    button { padding:8px 12px; margin:5px; cursor:pointer }
+    input, textarea { padding:8px; width:100%; margin-bottom:10px; box-sizing:border-box }
+    .container { padding:15px }
+    .hidden { display:none }
+    .board { display:flex; gap:10px; overflow-x:auto }
+    .col { background:#fff; border:1px solid #ccc; border-radius:6px; padding:10px; min-width:220px }
+    .card { border:1px solid #aaa; border-radius:6px; padding:8px; margin:6px 0 }
+    .done { background:#d9ffd9 }
   </style>
 </head>
 
 <body>
 <header>
-  <h1>Ordini 3D - Laboratorio</h1>
-  <div class="row">
-    <button onclick="showNew()">Nuovo ordine</button>
-    <button onclick="showPrep()">Preparazione</button>
-  </div>
+  <h1>Organizzazione Ordini 3D</h1>
+  <button onclick="showNew()">Nuovo ordine</button>
+  <button onclick="showPrep()">Preparazione</button>
 </header>
 
-<div id="new" class="panel">
-  <h3>Nuovo ordine</h3>
-  <input id="cliente" placeholder="Cliente"><br><br>
-  <input id="sito" placeholder="Sito vendita"><br><br>
-  <input id="progetto" placeholder="Numero progetto"><br><br>
-  <input id="prezzo" type="number" placeholder="Prezzo €"><br><br>
-  <textarea id="note" placeholder="Note"></textarea><br><br>
-  <button onclick="add()">Invia ordine</button>
-</div>
+<div class="container">
 
-<div id="prep" class="panel hide">
-  <div class="board" id="board"></div>
+  <!-- PAGINA NUOVO ORDINE -->
+  <div id="page-new">
+    <h3>Inserisci nuovo ordine</h3>
+    <input id="cliente" placeholder="Cliente">
+    <input id="sito" placeholder="Sito vendita (Etsy, Shopify…)">
+    <input id="progetto" placeholder="Numero progetto">
+    <input id="prezzo" type="number" placeholder="Prezzo €">
+    <textarea id="note" placeholder="Note ordine"></textarea>
+    <button onclick="addOrder()">Invia ordine</button>
+  </div>
+
+  <!-- PAGINA PREPARAZIONE -->
+  <div id="page-prep" class="hidden">
+    <h3>Preparazione ordini</h3>
+    <div class="board" id="board"></div>
+  </div>
+
 </div>
 
 <script src="app.js"></script>
 </body>
 </html>
-
-
