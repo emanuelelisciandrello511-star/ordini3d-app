@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="it">
 <head>
@@ -39,6 +40,15 @@
     .danger{border-color:#ffd0d0;background:#fff5f5}
     .done{border-color:#33c26b;background:#dfffe6}
     .muted{color:#666;font-size:12px}
+
+    table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
+    th,td{font-size:12px;text-align:left;padding:10px;border-top:1px solid #eef0f6}
+    thead th{font-size:12px;color:#555;border-top:none}
+    tbody tr:hover{background:#fafbff}
+    .pill{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid #e6e7ee;color:#444;background:#fff}
+    .pill.ok{border-color:#cfe9d6;background:#f4fff7}
+    .pill.warn{border-color:#ffe3b7;background:#fff8e8}
+    .pill.info{border-color:#d8e6ff;background:#f2f7ff}
   </style>
 </head>
 
@@ -50,6 +60,7 @@
     <div class="tabs">
       <button class="tab active" id="tab-new" onclick="showNew(); setActive('new')">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep(); setActive('prep')">Produzione</button>
+      <button class="tab" id="tab-sales" onclick="openSales()">Vendite</button>
     </div>
   </div>
 </header>
@@ -80,10 +91,32 @@
       <div class="label">Note (opzionale)</div>
       <textarea id="note" placeholder="Dettagli utili..."></textarea>
     </div>
-
-    <div class="row" style="margin-top:10px">
+<div class="row" style="margin-top:10px">
       <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-      <span class="muted">Comparirà in Produzione.</span>
+      <span class="muted">Comparirà in Produzione (con data/ora).</span>
+    </div>
+
+    <div style="margin-top:14px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>Ordini attivi</b>
+        <button class="small" onclick="refreshActiveTable()">Aggiorna</button>
+      </div>
+      <div class="muted">Sotto vedi gli ordini non completati + stato attuale.</div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Articolo</th>
+            <th>Cliente</th>
+            <th>Sito</th>
+            <th>€</th>
+            <th>Stato</th>
+            <th>Creato</th>
+            <th>Aggiornato</th>
+          </tr>
+        </thead>
+        <tbody id="activeTbody"></tbody>
+      </table>
     </div>
   </div>
 
@@ -96,12 +129,31 @@
       <div class="board" id="board"></div>
     </div>
   </div>
+
+  <!-- PAGINA VENDITE (protetta) -->
+  <div id="page-sales" class="hide">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>Vendite giornaliere</b>
+        <div class="row">
+          <button class="small" onclick="refreshSales()">Aggiorna</button>
+          <button class="small danger" onclick="lockSales()">Blocca</button>
+        </div>
+      </div>
+      <div class="muted">
+        Qui entrano solo ordini <b>Completati</b>. Raggruppati per giorno con totale €.
+      </div>
+
+      <div id="salesWrap" style="margin-top:12px"></div>
+    </div>
+  </div>
 </div>
 
 <script>
   function setActive(which){
     document.getElementById('tab-new').classList.toggle('active', which==='new');
     document.getElementById('tab-prep').classList.toggle('active', which==='prep');
+    document.getElementById('tab-sales').classList.toggle('active', which==='sales');
   }
 </script>
 
