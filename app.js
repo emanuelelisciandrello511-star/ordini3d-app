@@ -324,4 +324,269 @@ function setupOrderKeyboard(){
 
     // Enter = nuova riga se sei sull'ultima (o comunque)
     if(e.key === "Enter" && !e.ctrlKey){
-      e.prev
+      e.preventDefault();
+      const newRow = addOrderLine("", 1);
+      newRow.querySelector(".ol-code").focus();
+      return;
+    }
+
+    // Ctrl+Enter = salva ordine
+    if(e.key === "Enter" && e.ctrlKey){
+      e.preventDefault();
+      document.getElementById("btnSaveOrder").click();
+      return;
+    }
+
+    // Up/Down
+    if(e.key === "ArrowUp"){
+      e.preventDefault();
+      const prev = rows[Math.max(0, idx-1)];
+      if(prev) prev.querySelector(".ol-code").focus();
+      return;
+    }
+    if(e.key === "ArrowDown"){
+      e.preventDefault();
+      const next = rows[Math.min(rows.length-1, idx+1)];
+      if(next) next.querySelector(".ol-code").focus();
+      return;
+    }
+  });
+}
+
+document.getElementById("btnAddLine").addEventListener("click", () => {
+  const tr = addOrderLine("", 1);
+  tr.querySelector(".ol-code").focus();
+});
+
+document.getElementById("btnClearOrder").addEventListener("click", () => {
+  document.getElementById("ordTotal").value = "";
+  orderLinesTbody.innerHTML = "";
+  addOrderLine("", 1).querySelector(".ol-code").focus();
+});
+
+document.getElementById("btnSaveOrder").addEventListener("click", async () => {
+  const channel = document.getElementById("ordChannel").value;
+  const total = Number(document.getElementById("ordTotal").value || 0);
+  const lines = getOrderLines();
+
+  if(lines.length === 0){ showToast("Inserisci almeno 1 riga con codice"); return; }
+  if(!Number.isFinite(total) || total < 0){ showToast("Incasso non valido"); return; }
+
+  const order = {
+    created_at: nowISO(),
+    channel,
+    total: Number(total),
+    status: "open",
+    status_changed_at: null,
+    lines,
+  };
+
+  // salva ordine
+  const saved = await dbOrderInsert(order);
+  if(!saved) return;
+
+  // scala magazzino (se prodotto esiste) oppure crea con negativo? -> per ora scala solo se esiste
+  // (se vuoi, posso mettere "crea se non esiste" ma così eviti errori)
+  const inv = await dbInventoryList();
+  for(const l of lines){
+    const found = inv.find(x => x.code.toLowerCase() === l.code.toLowerCase());
+    if(found){
+      const newQty = Math.max(0, Number(found.qty) - Number(l.qty));
+      await dbInventoryUpsert(found.code, newQty);
+    }
+  }
+
+  document.getElementById("btnClearOrder").click();
+  await refreshOrders();
+  await renderInventory();
+  showToast("Ordine salvato");
+});
+
+document.getElementById("btnOrdersRefresh").addEventListener("click", refreshOrders);
+document.getElementById("ordersFilter").addEventListener("change", refreshOrders);
+
+function statusPill(status){
+  if(status === "done") return `<span class="pill done">Completato</span>`;
+  if(status === "cancelled") return `<span class="pill cancel">Annullato</span>`;
+  return `<span class="pill open">Aperto</span>`;
+}
+
+async function cleanupOrders(orders){
+  // rimuovi "done" più vecchi di 24 ore (solo da UI e storage)
+  const limitMs = ORDER_CLEANUP_HOURS * 60 * 60 * 1000;
+  const now = Date.now();
+
+  if(supabaseEnabled){
+    // su Supabase NON cancello automaticamente (eviti sorprese), li nascondo lato UI.
+    // Se vuoi che li cancelli davvero anche dal DB, lo facciamo dopo.
+    return orders;
+  }
+
+  const cleaned = orders.filter(o => {
+    if(o.status !== "done") return true;
+    if(!o.status_changed_at) return true;
+    return (now - new Date(o.status_changed_at).getTime()) < limitMs;
+  });
+
+  if(cleaned.length !== orders.length){
+    await lsSet(LS_KEYS.orders, cleaned);
+  }
+  return cleaned;
+}
+
+async function refreshOrders(){
+  let orders = await dbOrdersList();
+  orders = await cleanupOrders(orders);
+
+  const filter = document.getElementById("ordersFilter").value;
+  let view = orders;
+
+  if(filter !== "all"){
+    view = orders.filter(o => o.status === filter);
+  }
+
+  ordersTbody.innerHTML = "";
+  view.forEach(o => {
+    const tr = document.createElement("tr");
+    const dt = new Date(o.created_at).toLocaleString();
+    tr.innerHTML = `
+      <td>${dt}</td>
+      <td>${escapeHtml(o.channel)}</td>
+      <td class="right">${fmtMoney(o.total)}</td>
+      <td>${statusPill(o.status)}</td>
+      <td class="center">
+        <button class="btn okBtn" type="button">✓</button>
+        <button class="btn danger cancelBtn" type="button">X</button>
+      </td>
+    `;
+    tr.querySelector(".okBtn").addEventListener("click", async () => {
+      await dbOrderUpdateStatus(o.id, "done");
+      await refreshOrders();
+      showToast("Ordine completato");
+    });
+    tr.querySelector(".cancelBtn").addEventListener("click", async () => {
+      await dbOrderUpdateStatus(o.id, "cancelled");
+      await refreshOrders();
+      showToast("Ordine annullato");
+    });
+    ordersTbody.appendChild(tr);
+  });
+}
+
+/* =========================
+   REPORT INCASSI
+========================= */
+document.getElementById("repMode").addEventListener("change", () => {
+  const mode = document.getElementById("repMode").value;
+  const day = document.getElementById("repDay");
+  day.classList.toggle("hidden", mode !== "daypick");
+});
+
+document.getElementById("btnRepRun").addEventListener("click", runReport);
+
+async function runReport(){
+  const mode = document.getElementById("repMode").value;
+  const repDay = document.getElementById("repDay").value;
+
+  const orders = (await dbOrdersList()).filter(o => o.status === "done");
+
+  let filtered = orders;
+
+  if(mode === "daily"){
+    // oggi
+    const today = new Date();
+    filtered = orders.filter(o => sameDay(o.created_at, today));
+  } else if(mode === "monthly"){
+    const mk = monthKey(new Date());
+    filtered = orders.filter(o => monthKey(o.created_at) === mk);
+  } else if(mode === "daypick"){
+    if(!repDay){ showToast("Seleziona un giorno"); return; }
+    const pick = new Date(repDay + "T00:00:00");
+    filtered = orders.filter(o => sameDay(o.created_at, pick));
+  }
+
+  const total = filtered.reduce((s, o) => s + Number(o.total || 0), 0);
+  document.getElementById("repTotal").textContent = fmtMoney(total);
+  document.getElementById("repCount").textContent = String(filtered.length);
+
+  // per canale
+  const map = new Map();
+  for(const o of filtered){
+    const key = o.channel || "Sconosciuto";
+    const prev = map.get(key) || { sum:0, count:0 };
+    prev.sum += Number(o.total || 0);
+    prev.count += 1;
+    map.set(key, prev);
+  }
+
+  const repByChannel = document.getElementById("repByChannel");
+  repByChannel.innerHTML = "";
+  [...map.entries()].sort((a,b) => b[1].sum - a[1].sum).forEach(([ch, v]) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(ch)}</td><td class="right">${fmtMoney(v.sum)}</td><td class="right">${v.count}</td>`;
+    repByChannel.appendChild(tr);
+  });
+
+  // lista ordini inclusi
+  const repOrders = document.getElementById("repOrders");
+  repOrders.innerHTML = "";
+  filtered
+    .slice()
+    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+    .forEach(o => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${new Date(o.created_at).toLocaleString()}</td><td>${escapeHtml(o.channel)}</td><td class="right">${fmtMoney(o.total)}</td>`;
+      repOrders.appendChild(tr);
+    });
+
+  showToast("Report aggiornato");
+}
+
+/* =========================
+   IMPOSTAZIONI
+========================= */
+document.getElementById("btnSavePass").addEventListener("click", async () => {
+  const pass = document.getElementById("setDeletePass").value;
+  if(!pass || pass.length < 2){ showToast("Password troppo corta"); return; }
+  const s = await settingsGet();
+  s.deletePass = pass;
+  await settingsSet(s);
+  document.getElementById("setDeletePass").value = "";
+  showToast("Password salvata");
+});
+
+document.getElementById("btnResetPass").addEventListener("click", async () => {
+  await settingsSet({ deletePass: "1234" });
+  showToast("Password resettata a 1234");
+});
+
+document.getElementById("btnTestSupabase").addEventListener("click", async () => {
+  if(!supabaseEnabled){ showToast("Supabase NON configurato (usa Local)"); return; }
+  const { error } = await supabase.from("inventory").select("id").limit(1);
+  if(error){ showToast("Connessione OK ma tabella manca / policy"); return; }
+  showToast("Connessione Supabase OK");
+});
+
+/* =========================
+   AVVIO
+========================= */
+async function refreshAll(){
+  await renderInventory();
+  await refreshOrders();
+  // report default: oggi
+  document.getElementById("repDay").value = toDateInputValue(new Date());
+}
+
+(function boot(){
+  initSupabase();
+
+  // setup ordine righe
+  orderLinesTbody.innerHTML = "";
+  addOrderLine("", 1);
+  setupOrderKeyboard();
+
+  // default date picker
+  document.getElementById("repDay").value = toDateInputValue(new Date());
+
+  refreshAll();
+})();
