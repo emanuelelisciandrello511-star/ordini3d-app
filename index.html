@@ -6,79 +6,97 @@
   <title>PIANETA 3D LAB</title>
 
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f6f7fb;color:#111}
-    header{position:sticky;top:0;background:#fff;padding:12px 14px;border-bottom:1px solid #e6e7ee;z-index:5}
-    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    body{
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      margin:0;
+      background:#f6f7fb;
+      color:#111
+    }
+    header{
+      position:sticky;
+      top:0;
+      background:#fff;
+      padding:12px 14px;
+      border-bottom:1px solid #e6e7ee;
+      z-index:10
+    }
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     h1{font-size:16px;margin:0}
-    input,button,textarea,select{padding:10px;border:1px solid #d9dbe7;border-radius:10px;background:#fff;font-size:14px}
-    textarea{min-height:44px;resize:vertical;width:100%}
-    button{cursor:pointer}
+    input,textarea,button,select{
+      padding:10px;
+      border:1px solid #d9dbe7;
+      border-radius:10px;
+      font-size:14px
+    }
+    textarea{resize:vertical}
+    button{cursor:pointer;background:#fff}
     .wrap{padding:12px}
-    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
-    .tab{padding:8px 10px;border:1px solid #d9dbe7;border-radius:999px;background:#fff;cursor:pointer;font-size:13px}
-    .tab.active{border-color:#b9c3ff}
-    .panel{background:#fff;border:1px solid #e6e7ee;border-radius:12px;padding:12px}
-    .label{font-size:12px;color:#555;margin:6px 0 4px}
 
-    /* ✅ NUOVO ORDINE: UNA VOCE SOTTO L'ALTRA */
-    .grid1{display:grid;grid-template-columns:1fr;gap:10px}
+    .tabs{display:flex;gap:8px;margin-left:auto}
+    .tab{
+      padding:8px 12px;
+      border:1px solid #d9dbe7;
+      border-radius:999px;
+      background:#fff;
+      font-size:13px
+    }
+    .tab.active{border-color:#7b8cff}
+
+    .panel{
+      background:#fff;
+      border:1px solid #e6e7ee;
+      border-radius:12px;
+      padding:12px
+    }
+    .label{font-size:12px;color:#555;margin-bottom:4px}
+
+    .grid1{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:10px
+    }
 
     .hide{display:none}
 
-    .board{display:grid;grid-template-columns:repeat(6,minmax(220px,1fr));gap:10px;align-items:start}
-    @media (max-width: 1200px){ .board{grid-template-columns:repeat(2,minmax(220px,1fr));} }
-    @media (max-width: 640px){ .board{grid-template-columns:1fr;} }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:10px
+    }
+    th,td{
+      font-size:12px;
+      padding:8px;
+      border-top:1px solid #eee;
+      text-align:left
+    }
+    thead th{color:#555}
 
-    .col{background:#fff;border:1px solid #e6e7ee;border-radius:12px;padding:10px}
-    .col h2{font-size:14px;margin:0 0 8px 0;display:flex;justify-content:space-between;align-items:center}
-    .count{font-size:12px;color:#666}
-    .card{border:1px solid #e6e7ee;border-radius:12px;padding:10px;margin:8px 0;background:#fff}
-    .title{font-weight:700;font-size:14px;margin:0 0 6px 0}
-    .meta{font-size:12px;color:#444;line-height:1.35}
-    .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-    .small{padding:7px 9px;border-radius:10px;font-size:12px}
-    .ok{border-color:#cfe9d6;background:#f4fff7}
-    .danger{border-color:#ffd0d0;background:#fff5f5}
-    .muted{color:#666;font-size:12px}
-
-    table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
-    th,td{font-size:12px;text-align:left;padding:10px;border-top:1px solid #eef0f6}
-    thead th{font-size:12px;color:#555;border-top:none}
-    tbody tr:hover{background:#fafbff}
-
-    .pill{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid #e6e7ee;color:#444;background:#fff}
-    .pill.ok{border-color:#cfe9d6;background:#f4fff7}
-    .pill.warn{border-color:#ffe3b7;background:#fff8e8}
-    .pill.info{border-color:#d8e6ff;background:#f2f7ff}
+    .muted{font-size:12px;color:#666}
+    .ok{background:#f4fff7;border-color:#bfe5cb}
+    .danger{background:#fff5f5;border-color:#ffbcbc}
 
     /* Magazzino */
-    .qty{font-weight:700}
-    .qty.red{color:#b00020}
-    .qty.green{color:#0b7a2a}
+    .row-red td{background:#fff0f0}
+    .qty.green{color:#0b7a2a;font-weight:700}
+    .qty.red{color:#b00020;font-weight:700}
 
-    /* ✅ Riga intera rossa quando qty=0 */
-    .row-red td{background:#fff5f5 !important}
-    .row-red td:first-child{border-left:3px solid #ff8a8a}
-    .row-red:hover td{background:#ffecec !important}
-
-    /* Stampa report */
     @media print{
-      header,.tabs,.no-print{display:none !important}
+      header,.tabs,.no-print{display:none}
       body{background:#fff}
-      .panel{border:none}
     }
   </style>
 </head>
 
 <body>
+
 <header>
   <div class="row">
-    <h1>PIANETA 3D LAB</h1>
+    <h1>🪐 PIANETA 3D LAB</h1>
     <div class="tabs">
-      <button class="tab active" id="tab-new" onclick="showNew(); setActive('new')">Nuovo ordine</button>
-      <button class="tab" id="tab-prep" onclick="showPrep(); setActive('prep')">Produzione</button>
-      <button class="tab" id="tab-stock" onclick="showStock(); setActive('stock')">Magazzino</button>
-      <button class="tab" id="tab-reports" onclick="openReports(); setActive('reports')">Report incassi</button>
+      <button class="tab active" id="tab-new" onclick="showNew();setActive('new')">Nuovo ordine</button>
+      <button class="tab" id="tab-prep" onclick="showPrep();setActive('prep')">Produzione</button>
+      <button class="tab" id="tab-stock" onclick="showStock();setActive('stock')">Magazzino</button>
+      <button class="tab" id="tab-reports" onclick="openReports();setActive('reports')">Report</button>
     </div>
   </div>
 </header>
@@ -90,151 +108,104 @@
     <div class="grid1">
       <div>
         <div class="label">Cliente</div>
-        <input id="cliente" placeholder="Es. Mario Rossi" autocomplete="off">
+        <input id="cliente">
       </div>
-
       <div>
         <div class="label">Sito vendita</div>
-        <input id="sito" placeholder="Etsy / eBay / WhatsApp" autocomplete="off">
+        <input id="sito">
       </div>
-
       <div>
-        <div class="label">Numero progetto (ARTICOLO)</div>
-        <input id="progetto" placeholder="PRJ-2026-001" autocomplete="off">
+        <div class="label">Codice prodotto</div>
+        <input id="progetto">
       </div>
-
       <div>
         <div class="label">Prezzo (€)</div>
-        <input id="prezzo" type="number" step="0.01" placeholder="49.90">
+        <input id="prezzo" type="number" step="0.01">
       </div>
-
       <div>
-        <div class="label">Note (opzionale)</div>
-        <textarea id="note" placeholder="Dettagli utili..."></textarea>
+        <div class="label">Note</div>
+        <textarea id="note"></textarea>
       </div>
     </div>
 
     <div class="row no-print" style="margin-top:10px">
-      <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-      <span class="muted">Inserimento veloce: TAB tra i campi, INVIO per salvare (lo impostiamo in app.js).</span>
+      <button class="ok" onclick="addOrder()">INVIA ORDINE (INVIO)</button>
+      <span class="muted">TAB / ↑ ↓ per muoverti</span>
     </div>
 
-    <div style="margin-top:14px">
-      <div class="row no-print" style="justify-content:space-between;align-items:center">
-        <b>Ordini attivi</b>
-        <button class="small" onclick="refreshActiveTable()">Aggiorna</button>
-      </div>
-      <div class="muted">Gli ordini COMPLETATI spariscono dall’operativo dopo 24 ore.</div>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th><th>Stato</th><th>Creato</th><th>Aggiornato</th>
-          </tr>
-        </thead>
-        <tbody id="activeTbody"></tbody>
-      </table>
-    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Prodotto</th><th>Cliente</th><th>Sito</th>
+          <th>€</th><th>Stato</th>
+        </tr>
+      </thead>
+      <tbody id="activeTbody"></tbody>
+    </table>
   </div>
 
   <!-- PRODUZIONE -->
   <div id="page-prep" class="hide">
     <div class="panel">
-      <div class="muted" style="margin-bottom:10px">
-        Regola: in <b>Assemblaggio</b> SOLO con <b>Frontale OK</b> + <b>Posteriore OK</b>.
-      </div>
-      <div class="board" id="board"></div>
+      <div id="board"></div>
     </div>
   </div>
 
   <!-- MAGAZZINO -->
   <div id="page-stock" class="hide">
     <div class="panel">
-      <div class="row no-print" style="justify-content:space-between;align-items:center">
-        <b>Magazzino</b>
-        <button class="small" onclick="refreshStock()">Aggiorna</button>
-      </div>
-
-      <div class="grid1" style="margin-top:10px">
-        <div>
-          <div class="label">Codice prodotto</div>
-          <input id="stockCode" placeholder="PRJ-2026-001" autocomplete="off">
-        </div>
-        <div>
-          <div class="label">Quantità</div>
-          <input id="stockQty" type="number" min="0" step="1" placeholder="0">
-        </div>
-      </div>
-
-      <div class="row no-print" style="margin-top:10px">
-        <button class="ok" onclick="addOrUpdateStock()">+ Salva in magazzino</button>
-        <span class="muted">0 = riga rossa • sopra 2 = verde (numero)</span>
+      <div class="grid1">
+        <input id="stockCode" placeholder="Codice prodotto">
+        <input id="stockQty" type="number" min="0" placeholder="Quantità">
+        <button class="ok" onclick="addOrUpdateStock()">Salva</button>
       </div>
 
       <table>
         <thead>
-          <tr>
-            <th>Codice prodotto</th>
-            <th>Quantità</th>
-            <th class="no-print">Azioni</th>
-          </tr>
+          <tr><th>Codice</th><th>Quantità</th><th></th></tr>
         </thead>
         <tbody id="stockTbody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- REPORT INCASSI (protetto) -->
+  <!-- REPORT -->
   <div id="page-reports" class="hide">
     <div class="panel">
-      <div class="row no-print" style="justify-content:space-between;align-items:center">
-        <b>Report incassi</b>
-        <div class="row">
-          <select id="reportMode" onchange="syncReportFilters(); refreshReports();">
-            <option value="daily">Giornaliero (tutti)</option>
-            <option value="monthly">Mensile (tutti)</option>
-            <option value="pickday">Seleziona giorno</option>
-            <option value="pickmonth">Seleziona mese</option>
-          </select>
-
-          <!-- filtri -->
-          <input id="reportDay" type="date" class="no-print" style="display:none" />
-          <input id="reportMonth" type="month" class="no-print" style="display:none" />
-
-          <button class="small" onclick="refreshReports()">Aggiorna</button>
-          <button class="small ok" onclick="window.print()">Stampa</button>
-          <button class="small danger" onclick="lockReports()">Blocca</button>
-        </div>
+      <div class="row no-print">
+        <select id="reportMode" onchange="syncReportFilters();refreshReports()">
+          <option value="daily">Giornaliero</option>
+          <option value="monthly">Mensile</option>
+          <option value="pickday">Giorno specifico</option>
+          <option value="pickmonth">Mese specifico</option>
+        </select>
+        <input type="date" id="reportDay" style="display:none">
+        <input type="month" id="reportMonth" style="display:none">
+        <button onclick="refreshReports()">Aggiorna</button>
+        <button onclick="window.print()">Stampa</button>
       </div>
 
-      <div class="muted">
-        Solo ordini completati (ultimi 365 giorni). Se vuoi un giorno preciso scegli “Seleziona giorno”, imposta la data e premi Aggiorna.
-      </div>
-
-      <div id="reportsWrap" style="margin-top:12px"></div>
+      <div id="reportsWrap"></div>
     </div>
   </div>
 
 </div>
 
-<script>
-  function setActive(which){
-    document.getElementById('tab-new').classList.toggle('active', which==='new');
-    document.getElementById('tab-prep').classList.toggle('active', which==='prep');
-    document.getElementById('tab-stock').classList.toggle('active', which==='stock');
-    document.getElementById('tab-reports').classList.toggle('active', which==='reports');
-  }
+<!-- Parse SDK -->
+<script src="https://unpkg.com/parse/dist/parse.min.js"></script>
+<script src="app.js"></script>
 
-  // Mostra/nasconde i filtri data/mese in base alla modalita report
+<script>
+  function setActive(k){
+    ["new","prep","stock","reports"].forEach(x=>{
+      document.getElementById("tab-"+x)?.classList.toggle("active",x===k)
+    })
+  }
   function syncReportFilters(){
-    const mode = document.getElementById("reportMode")?.value || "daily";
-    const day = document.getElementById("reportDay");
-    const mon = document.getElementById("reportMonth");
-    if(day) day.style.display = (mode === "pickday") ? "inline-block" : "none";
-    if(mon) mon.style.display = (mode === "pickmonth") ? "inline-block" : "none";
+    reportDay.style.display = reportMode.value==="pickday"?"inline":"none";
+    reportMonth.style.display = reportMode.value==="pickmonth"?"inline":"none";
   }
 </script>
 
-<script src="app.js"></script>
 </body>
 </html>
