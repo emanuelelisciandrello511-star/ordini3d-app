@@ -1,11 +1,18 @@
 /* =========================
-   ORDINI 3D - LAB (FULL)
+   ORDINI 3D - LAB (FULL v5)
    - colori colonne
    - tabella "ordini attivi" aggiornata
    - pagina Vendite protetta (0000)
+   - COMPLETATO: visibile in operativo solo 24h, poi sparisce da board+attivi
+   - Vendite: memoria 365 giorni (retention)
+   - Export Excel (CSV) giornaliero / mensile
    ========================= */
 
-const LS_KEY = "ordini3d_orders_v4";
+const LS_KEY = "ordini3d_orders_v5";
+
+/* ====== RETENTION / TTL ====== */
+const DONE_TTL_MS = 24 * 60 * 60 * 1000;        // 24 ore (sparisce dall'operativo)
+const SALES_RETENTION_MS = 365 * 24 * 60 * 60 * 1000; // 365 giorni vendite
 
 /* ---------- LOAD/SAVE ---------- */
 function loadOrders() {
@@ -29,12 +36,12 @@ const FLOW = {
 
 /* ---------- COLONNE + COLORI ---------- */
 const COLS = [
-  { id: "PREP",        title: "🟡 Preparazione",     bg: "#fff7cc", border: "#f1d36a" },
-  { id: "FRONTALE",    title: "🔵 Stampa frontale",  bg: "#e8f2ff", border: "#7fb0ff" },
-  { id: "POSTERIORE",  title: "🟠 Stampa posteriore",bg: "#ffe9dc", border: "#ffb184" },
-  { id: "ASSEMBLAGGIO",title: "🟣 Assemblaggio",     bg: "#f3e8ff", border: "#b68cff" },
-  { id: "SPEDIZIONE",  title: "🟤 Spedizione",       bg: "#f1efe9", border: "#cbbfa6" },
-  { id: "COMPLETATO",  title: "🟢 Completato",       bg: "#dfffe6", border: "#33c26b" },
+  { id: "PREP",        title: "🟡 Preparazione",      bg: "#fff7cc", border: "#f1d36a" },
+  { id: "FRONTALE",    title: "🔵 Stampa frontale",   bg: "#e8f2ff", border: "#7fb0ff" },
+  { id: "POSTERIORE",  title: "🟠 Stampa posteriore", bg: "#ffe9dc", border: "#ffb184" },
+  { id: "ASSEMBLAGGIO",title: "🟣 Assemblaggio",      bg: "#f3e8ff", border: "#b68cff" },
+  { id: "SPEDIZIONE",  title: "🟤 Spedizione",        bg: "#f1efe9", border: "#cbbfa6" },
+  { id: "COMPLETATO",  title: "🟢 Completato (24h)",  bg: "#dfffe6", border: "#33c26b" },
 ];
 
 /* ---------- UTILS ---------- */
@@ -56,6 +63,30 @@ function euro(n){
 }
 function touch(o){
   o.updatedAt = new Date().toISOString();
+}
+function nowMs(){ return Date.now(); }
+
+/* ====== REGOLE VISIBILITA / RETENTION ====== */
+
+// COMPLETATO visibile in operativo solo 24h
+function completedTsMs(o){
+  const iso = o.completedAt || o.updatedAt || o.createdAt;
+  return iso ? new Date(iso).getTime() : 0;
+}
+function isCompletedVisibleOperational(o){
+  if(o.flow !== FLOW.COMPLETATO) return true;
+  return (nowMs() - completedTsMs(o)) <= DONE_TTL_MS;
+}
+
+// Rimuove completati più vecchi di 365 giorni (per vendite)
+function pruneOldCompleted(){
+  const t = nowMs();
+  const before = orders.length;
+  orders = orders.filter(o => {
+    if(o.flow !== FLOW.COMPLETATO) return true;
+    return (t - completedTsMs(o)) <= SALES_RETENTION_MS;
+  });
+  if(orders.length !== before) saveOrders();
 }
 
 /* ---------- NAV / PAGES ---------- */
@@ -92,10 +123,13 @@ function addOrder(){
   const prezzo   = $("prezzo")?.value.trim();
   const note     = $("note")?.value.trim();
 
+  // tu prima richiedevi tutti obbligatori
   if(!cliente || !sito || !articolo || !prezzo){
     alert("Compila Cliente, Sito vendita, Numero progetto e Prezzo.");
     return;
   }
+
+  pruneOldCompleted();
 
   const now = new Date().toISOString();
   const id = `${articolo}__${Date.now()}`;
@@ -118,7 +152,6 @@ function addOrder(){
     const el = $(x); if(el) el.value = "";
   });
 
-  // Vai in produzione e aggiorna anche tabella attivi
   showPrep();
   refreshActiveTable();
 }
@@ -159,7 +192,10 @@ function goPrev(id){
   if(!o) return;
 
   if(o.flow === FLOW.SPEDIZIONE) o.flow = FLOW.ASSEMBLAGGIO;
-  else if(o.flow === FLOW.COMPLETATO) o.flow = FLOW.SPEDIZIONE;
+  else if(o.flow === FLOW.COMPLETATO) {
+    o.flow = FLOW.SPEDIZIONE;
+    o.completedAt = null; // se torna indietro, non è più completato
+  }
   else if(o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.PREPARAZIONE;
 
   touch(o);
@@ -176,7 +212,7 @@ function goNext(id){
   if(o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.SPEDIZIONE;
   else if(o.flow === FLOW.SPEDIZIONE){
     o.flow = FLOW.COMPLETATO;
-    o.completedAt = new Date().toISOString();
+    o.completedAt = new Date().toISOString(); // parte la regola 24h + vendite 365gg
   }
 
   touch(o);
@@ -197,12 +233,16 @@ function removeOrder(id){
 
 /* ---------- FILTRI COLONNE ---------- */
 function inCol(o, colId){
+  // NOTA: per l'operativo, i COMPLETATO oltre 24h non devono apparire da nessuna parte
+  const visibleOp = isCompletedVisibleOperational(o);
+  if(!visibleOp) return false;
+
   if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
   if(colId === "FRONTALE") return o.flow === FLOW.PREPARAZIONE && !o.frontaleOK;
   if(colId === "POSTERIORE") return o.flow === FLOW.PREPARAZIONE && !o.posterioreOK;
   if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
   if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
-  if(colId === "COMPLETATO") return o.flow === FLOW.COMPLETATO;
+  if(colId === "COMPLETATO") return o.flow === FLOW.COMPLETATO; // già filtrato 24h sopra
   return false;
 }
 
@@ -211,7 +251,6 @@ function statusLabel(o){
   if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill info"};
   if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill info"};
 
-  // PREPARAZIONE dettagliata
   if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill warn"};
   if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill warn"};
   if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill warn"};
@@ -220,6 +259,8 @@ function statusLabel(o){
 
 /* ---------- RENDER BOARD ---------- */
 function render(){
+  pruneOldCompleted();
+
   const board = $("board");
   if(!board) return;
 
@@ -241,6 +282,10 @@ function render(){
       card.style.background = colDef.bg;
       card.style.borderColor = colDef.border;
 
+      const completedInfo = (o.flow === FLOW.COMPLETATO)
+        ? `<br><b>Completato:</b> ${fmtDT(o.completedAt)} <span class="muted">(sparisce dall’operativo dopo 24h)</span>`
+        : "";
+
       card.innerHTML = `
         <div class="title">${o.articolo} — € ${euro(o.prezzo)}</div>
         <div class="meta">
@@ -251,6 +296,7 @@ function render(){
           <b>Creato:</b> ${fmtDT(o.createdAt)}<br>
           <b>Agg.:</b> ${fmtDT(o.updatedAt)}
           ${o.note ? `<br><b>Note:</b> ${o.note}` : ""}
+          ${completedInfo}
         </div>
       `;
 
@@ -311,10 +357,14 @@ function render(){
 
 /* ---------- TABELLA "ORDINI ATTIVI" (NUOVO ORDINE) ---------- */
 function refreshActiveTable(){
+  pruneOldCompleted();
+
   const tbody = $("activeTbody");
   if(!tbody) return;
 
-  const actives = orders.filter(o=>o.flow !== FLOW.COMPLETATO);
+  // Attivi = tutti tranne completati "scaduti" (oltre 24h)
+  const actives = orders.filter(o => isCompletedVisibleOperational(o));
+
   tbody.innerHTML = "";
 
   if(actives.length === 0){
@@ -342,6 +392,8 @@ function refreshActiveTable(){
 const SALES_UNLOCK_KEY = "ordini3d_sales_unlocked";
 
 function openSales(){
+  pruneOldCompleted();
+
   const unlocked = sessionStorage.getItem(SALES_UNLOCK_KEY) === "1";
   if(!unlocked){
     const pass = prompt("Password Vendite:");
@@ -360,14 +412,21 @@ function lockSales(){
   showNew();
 }
 
+function getSalesCompleted365(){
+  pruneOldCompleted();
+  const t = nowMs();
+  return orders
+    .filter(o => o.flow === FLOW.COMPLETATO)
+    .filter(o => (t - completedTsMs(o)) <= SALES_RETENTION_MS)
+    .slice()
+    .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
+}
+
 function refreshSales(){
   const wrap = $("salesWrap");
   if(!wrap) return;
 
-  const completed = orders
-    .filter(o=>o.flow === FLOW.COMPLETATO)
-    .slice()
-    .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
+  const completed = getSalesCompleted365();
 
   if(completed.length === 0){
     wrap.innerHTML = `<div class="muted">Nessuna vendita per ora.</div>`;
@@ -426,16 +485,110 @@ function refreshSales(){
   });
 }
 
+/* ---------- EXPORT EXCEL (CSV) ---------- */
+// Ti scarica un CSV apribile in Excel
+
+function csvCell(v){
+  const s = String(v ?? "");
+  if(/[",\n]/.test(s)){
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function downloadBlob(filename, content, mime){
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function toCsv(ordersList){
+  const header = ["Data","Ora","Articolo","Cliente","Sito","Prezzo_EUR","Note"];
+  const lines = [header.join(",")];
+
+  ordersList.forEach(o=>{
+    const iso = o.completedAt || o.updatedAt || o.createdAt;
+    const d = new Date(iso);
+    const day = dateKey(iso);
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    lines.push([
+      csvCell(day),
+      csvCell(time),
+      csvCell(o.articolo),
+      csvCell(o.cliente),
+      csvCell(o.sito),
+      csvCell(euro(o.prezzo)),
+      csvCell(o.note || "")
+    ].join(","));
+  });
+
+  const total = ordersList.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
+  lines.push("");
+  lines.push(`Totale,,,,,${euro(total)},`);
+
+  return lines.join("\n");
+}
+
+// Export giorno: chiede data YYYY-MM-DD (vuoto = oggi)
+function downloadSalesDaily(){
+  const input = prompt("Data (YYYY-MM-DD). Vuoto = oggi:", "");
+  const todayIso = new Date().toISOString();
+  const todayKey = dateKey(todayIso);
+  const target = (input && /^\d{4}-\d{2}-\d{2}$/.test(input)) ? input : todayKey;
+
+  const completed = getSalesCompleted365().filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt) === target);
+  const csv = toCsv(completed);
+  downloadBlob(`vendite_${target}.csv`, csv, "text/csv;charset=utf-8");
+}
+
+// Export mese: chiede YYYY-MM (vuoto = mese corrente)
+function downloadSalesMonthly(){
+  const input = prompt("Mese (YYYY-MM). Vuoto = mese corrente:", "");
+  const d = new Date();
+  const curr = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+  const target = (input && /^\d{4}-\d{2}$/.test(input)) ? input : curr;
+
+  const completed = getSalesCompleted365().filter(o => {
+    const k = dateKey(o.completedAt || o.updatedAt || o.createdAt);
+    return k.slice(0,7) === target;
+  });
+
+  const csv = toCsv(completed);
+  downloadBlob(`vendite_${target}.csv`, csv, "text/csv;charset=utf-8");
+}
+
 /* ---------- START ---------- */
 document.addEventListener("DOMContentLoaded", () => {
-  // Mostra la pagina nuovo ordine appena carica
+  // pulizia retention 365gg all'avvio
+  pruneOldCompleted();
+
   showNew();
 
-  // (opzionale) ogni 2 secondi aggiorna la tabella attivi se sei su Nuovo ordine
+  // Refresh: fa sparire i completati scaduti senza ricaricare pagina
   setInterval(() => {
+    // Nuovo ordine: aggiorna tabella attivi
     const pageNew = $("page-new");
     if(pageNew && !pageNew.classList.contains("hide")){
       refreshActiveTable();
     }
-  }, 2000);
+
+    // Produzione: aggiorna board
+    const pagePrep = $("page-prep");
+    if(pagePrep && !pagePrep.classList.contains("hide")){
+      render();
+    }
+
+    // Vendite: aggiorna se visibile
+    const pageSales = $("page-sales");
+    if(pageSales && !pageSales.classList.contains("hide")){
+      refreshSales();
+    }
+  }, 60000); // ogni 60s
 });
