@@ -1,211 +1,361 @@
 <!doctype html>
 <html lang="it">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>PIANETA 3D LAB</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Gestionale 3D - Magazzino & Ordini</title>
+
+  <!-- Supabase JS (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
-    body{
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
-      margin:0;
-      background:#f6f7fb;
-      color:#111
+    :root{
+      --bg:#0b1220; --panel:#121b2e; --panel2:#0f172a; --text:#e5e7eb; --muted:#9ca3af;
+      --line:#22304b; --bad:#ef4444; --btn:#1f2a44; --btn2:#233152; --focus:#60a5fa;
     }
-    header{
-      position:sticky;
-      top:0;
-      background:#fff;
-      padding:12px 14px;
-      border-bottom:1px solid #e6e7ee;
-      z-index:10
+    *{box-sizing:border-box; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+    body{margin:0; background:linear-gradient(180deg,var(--bg),#070b14); color:var(--text);}
+    header{padding:16px 18px; border-bottom:1px solid var(--line); background:rgba(18,27,46,.75); position:sticky; top:0; z-index:10; backdrop-filter: blur(10px);}
+    .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+    h1{margin:0; font-size:16px;}
+    .badge{font-size:12px; padding:6px 10px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:rgba(15,23,42,.6);}
+    .badge strong{color:var(--text);}
+    .tabs{display:flex; gap:8px; padding-top:10px; flex-wrap:wrap;}
+    .tab{border:1px solid var(--line); background:var(--btn); color:var(--text); padding:8px 12px; border-radius:10px; cursor:pointer; user-select:none;}
+    .tab.active{background:var(--btn2); outline:2px solid rgba(96,165,250,.25);}
+    main{max-width:1100px; margin:18px auto; padding:0 18px 30px;}
+    .panel{background:rgba(18,27,46,.75); border:1px solid var(--line); border-radius:16px; padding:14px; box-shadow:0 20px 50px rgba(0,0,0,.25);}
+    .grid{display:grid; gap:12px;}
+    .grid.two{grid-template-columns:1fr 1fr;}
+    @media (max-width:900px){.grid.two{grid-template-columns:1fr;}}
+    label{font-size:12px; color:var(--muted);}
+    input, select{
+      background:var(--panel2); border:1px solid var(--line); border-radius:10px;
+      padding:10px 10px; color:var(--text); outline:none; width:100%;
     }
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    h1{font-size:16px;margin:0}
-    input,textarea,button,select{
-      padding:10px;
-      border:1px solid #d9dbe7;
-      border-radius:10px;
-      font-size:14px
+    input:focus, select:focus{border-color:rgba(96,165,250,.7); box-shadow:0 0 0 3px rgba(96,165,250,.15);}
+    .btn{background:var(--btn); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:12px; cursor:pointer; user-select:none; font-weight:700;}
+    .btn:hover{filter:brightness(1.1);}
+    .btn.primary{background:#1d3b66; border-color:#274c82;}
+    .btn.danger{background:#3a1520; border-color:#6b1f2c;}
+    .btn.ghost{background:transparent;}
+    .muted{color:var(--muted); font-size:12px;}
+    .hr{height:1px; background:var(--line); margin:12px 0;}
+    table{width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:12px; border:1px solid var(--line);}
+    th, td{padding:10px 10px; border-bottom:1px solid var(--line); font-size:13px;}
+    th{background:rgba(15,23,42,.8); text-align:left; color:var(--muted); font-weight:800;}
+    tr:last-child td{border-bottom:none;}
+    .right{text-align:right;}
+    .center{text-align:center;}
+    .hidden{display:none !important;}
+    .rowZero{background: rgba(239,68,68,.14) !important;}
+    .rowZero td{border-bottom-color:rgba(239,68,68,.25);}
+    .pill{padding:4px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; display:inline-block; color:var(--muted);}
+    .pill.open{border-color:rgba(96,165,250,.35); background:rgba(96,165,250,.10);}
+    .pill.done{border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.10); color:#bfe8c9;}
+    .pill.cancel{border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.10); color:#f7c2c2;}
+    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:rgba(2,6,23,.35);
     }
-    textarea{resize:vertical}
-    button{cursor:pointer;background:#fff}
-    .wrap{padding:12px}
-
-    .tabs{display:flex;gap:8px;margin-left:auto}
-    .tab{
-      padding:8px 12px;
-      border:1px solid #d9dbe7;
-      border-radius:999px;
-      background:#fff;
-      font-size:13px
+    .toast{
+      position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+      background:rgba(15,23,42,.95); border:1px solid var(--line); border-radius:14px;
+      padding:10px 12px; color:var(--text); min-width:280px; max-width:680px;
+      box-shadow:0 15px 45px rgba(0,0,0,.35); z-index:999;
     }
-    .tab.active{border-color:#7b8cff}
-
-    .panel{
-      background:#fff;
-      border:1px solid #e6e7ee;
-      border-radius:12px;
-      padding:12px
-    }
-    .label{font-size:12px;color:#555;margin-bottom:4px}
-
-    .grid1{
-      display:grid;
-      grid-template-columns:1fr;
-      gap:10px
-    }
-
-    .hide{display:none}
-
-    table{
-      width:100%;
-      border-collapse:collapse;
-      margin-top:10px
-    }
-    th,td{
-      font-size:12px;
-      padding:8px;
-      border-top:1px solid #eee;
-      text-align:left
-    }
-    thead th{color:#555}
-
-    .muted{font-size:12px;color:#666}
-    .ok{background:#f4fff7;border-color:#bfe5cb}
-    .danger{background:#fff5f5;border-color:#ffbcbc}
-
-    /* Magazzino */
-    .row-red td{background:#fff0f0}
-    .qty.green{color:#0b7a2a;font-weight:700}
-    .qty.red{color:#b00020;font-weight:700}
-
-    @media print{
-      header,.tabs,.no-print{display:none}
-      body{background:#fff}
-    }
+    .toast .trow{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+    .toast .msg{font-size:13px;}
+    .toast .x{cursor:pointer; color:var(--muted); font-weight:900; padding:2px 8px;}
+    .small{font-size:12px;}
   </style>
 </head>
 
 <body>
-
 <header>
-  <div class="row">
-    <h1>🪐 PIANETA 3D LAB</h1>
-    <div class="tabs">
-      <button class="tab active" id="tab-new" onclick="showNew();setActive('new')">Nuovo ordine</button>
-      <button class="tab" id="tab-prep" onclick="showPrep();setActive('prep')">Produzione</button>
-      <button class="tab" id="tab-stock" onclick="showStock();setActive('stock')">Magazzino</button>
-      <button class="tab" id="tab-reports" onclick="openReports();setActive('reports')">Report</button>
+  <div class="row" style="justify-content:space-between;">
+    <h1>Gestionale 3D</h1>
+    <div class="row">
+      <span id="syncBadge" class="badge">Storage: <strong>Local</strong></span>
+      <button class="btn ghost" id="btnReload">Ricarica</button>
     </div>
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="magazzino">Magazzino</button>
+    <button class="tab" data-tab="ordini">Ordini (veloce)</button>
+    <button class="tab" data-tab="incassi">Report incassi</button>
+    <button class="tab" data-tab="impostazioni">Impostazioni</button>
   </div>
 </header>
 
-<div class="wrap">
-
-  <!-- NUOVO ORDINE -->
-  <div id="page-new" class="panel">
-    <div class="grid1">
+<main>
+  <!-- MAGAZZINO -->
+  <section id="tab-magazzino" class="panel">
+    <div class="row" style="justify-content:space-between;">
       <div>
-        <div class="label">Cliente</div>
-        <input id="cliente">
+        <div style="font-weight:900;">Magazzino</div>
+        <div class="muted">Quantità = 0 → riga intera rossa. Eliminazione con password.</div>
       </div>
-      <div>
-        <div class="label">Sito vendita</div>
-        <input id="sito">
-      </div>
-      <div>
-        <div class="label">Codice prodotto</div>
-        <input id="progetto">
-      </div>
-      <div>
-        <div class="label">Prezzo (€)</div>
-        <input id="prezzo" type="number" step="0.01">
-      </div>
-      <div>
-        <div class="label">Note</div>
-        <textarea id="note"></textarea>
+      <div class="row">
+        <input id="invSearch" placeholder="Cerca codice..." style="width:220px;">
+        <button class="btn" id="btnInvRefresh">Aggiorna</button>
       </div>
     </div>
 
-    <div class="row no-print" style="margin-top:10px">
-      <button class="ok" onclick="addOrder()">INVIA ORDINE (INVIO)</button>
-      <span class="muted">TAB / ↑ ↓ per muoverti</span>
+    <div class="hr"></div>
+
+    <div class="grid two">
+      <div class="panel" style="padding:12px;">
+        <div class="row" style="align-items:flex-end;">
+          <div style="flex:1;">
+            <label>Codice prodotto</label>
+            <input id="invCode" placeholder="ES: LAMP-RED-BULL-01" autocomplete="off">
+          </div>
+          <div style="width:160px;">
+            <label>Quantità</label>
+            <input id="invQty" type="number" min="0" step="1" value="1">
+          </div>
+          <button class="btn primary" id="btnInvSave" style="width:160px;">Salva</button>
+        </div>
+        <div class="muted" style="margin-top:8px;">Se il codice esiste, aggiorna la quantità.</div>
+      </div>
+
+      <div class="panel" style="padding:12px;">
+        <div style="font-weight:900;">Azioni</div>
+        <div class="muted">Seleziona una riga e poi elimina.</div>
+        <div class="hr"></div>
+        <div class="row">
+          <button class="btn danger" id="btnInvDeleteSelected">Elimina selezionato</button>
+          <button class="btn" id="btnInvExport">Esporta JSON</button>
+        </div>
+      </div>
     </div>
+
+    <div class="hr"></div>
 
     <table>
       <thead>
         <tr>
-          <th>Prodotto</th><th>Cliente</th><th>Sito</th>
-          <th>€</th><th>Stato</th>
+          <th class="center" style="width:56px;">Sel</th>
+          <th>Codice</th>
+          <th class="right" style="width:140px;">Quantità</th>
+          <th style="width:200px;">Aggiornato</th>
         </tr>
       </thead>
-      <tbody id="activeTbody"></tbody>
+      <tbody id="invTbody"></tbody>
     </table>
-  </div>
+  </section>
 
-  <!-- PRODUZIONE -->
-  <div id="page-prep" class="hide">
-    <div class="panel">
-      <div id="board"></div>
+  <!-- ORDINI -->
+  <section id="tab-ordini" class="panel hidden">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div style="font-weight:900;">Ordini (veloce)</div>
+        <div class="muted">
+          <span class="kbd">↑</span><span class="kbd">↓</span> spostamento righe,
+          <span class="kbd">Enter</span> nuova riga,
+          <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> salva ordine.
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnOrdersRefresh">Aggiorna</button>
+      </div>
     </div>
-  </div>
 
-  <!-- MAGAZZINO -->
-  <div id="page-stock" class="hide">
-    <div class="panel">
-      <div class="grid1">
-        <input id="stockCode" placeholder="Codice prodotto">
-        <input id="stockQty" type="number" min="0" placeholder="Quantità">
-        <button class="ok" onclick="addOrUpdateStock()">Salva</button>
+    <div class="hr"></div>
+
+    <div class="grid two">
+      <div class="panel" style="padding:12px;">
+        <div class="row">
+          <div style="flex:1;">
+            <label>Canale</label>
+            <select id="ordChannel">
+              <option value="Catawiki">Catawiki</option>
+              <option value="eBay-1">eBay-1</option>
+              <option value="eBay-2">eBay-2</option>
+              <option value="Vinted-1">Vinted-1</option>
+              <option value="Vinted-2">Vinted-2</option>
+              <option value="Etsy-1">Etsy-1</option>
+              <option value="Etsy-2">Etsy-2</option>
+              <option value="Wallapop-1">Wallapop-1</option>
+              <option value="Wallapop-2">Wallapop-2</option>
+              <option value="Altro">Altro</option>
+            </select>
+          </div>
+          <div style="width:180px;">
+            <label>Incasso (€)</label>
+            <input id="ordTotal" type="number" min="0" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div style="font-weight:900; margin-bottom:8px;">Righe ordine</div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Codice</th>
+              <th class="right" style="width:120px;">Q.tà</th>
+              <th class="center" style="width:72px;">X</th>
+            </tr>
+          </thead>
+          <tbody id="orderLinesTbody"></tbody>
+        </table>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn" id="btnAddLine">+ Riga</button>
+          <button class="btn primary" id="btnSaveOrder">Salva</button>
+          <button class="btn" id="btnClearOrder">Pulisci</button>
+        </div>
+
+        <div class="muted" style="margin-top:8px;">
+          Gli ordini completati vengono nascosti automaticamente dopo 24 ore.
+        </div>
       </div>
 
-      <table>
-        <thead>
-          <tr><th>Codice</th><th>Quantità</th><th></th></tr>
-        </thead>
-        <tbody id="stockTbody"></tbody>
-      </table>
-    </div>
-  </div>
+      <div class="panel" style="padding:12px;">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <div style="font-weight:900;">Lista ordini</div>
+            <div class="muted">Completa / annulla.</div>
+          </div>
+          <select id="ordersFilter" style="width:170px;">
+            <option value="open">Aperti</option>
+            <option value="all">Tutti</option>
+            <option value="done">Completati</option>
+            <option value="cancelled">Annullati</option>
+          </select>
+        </div>
 
-  <!-- REPORT -->
-  <div id="page-reports" class="hide">
-    <div class="panel">
-      <div class="row no-print">
-        <select id="reportMode" onchange="syncReportFilters();refreshReports()">
+        <div class="hr"></div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:180px;">Data</th>
+              <th>Canale</th>
+              <th class="right" style="width:120px;">Incasso</th>
+              <th style="width:120px;">Stato</th>
+              <th class="center" style="width:150px;">Azioni</th>
+            </tr>
+          </thead>
+          <tbody id="ordersTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- INCASSI -->
+  <section id="tab-incassi" class="panel hidden">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div style="font-weight:900;">Report incassi</div>
+        <div class="muted">Giornaliero / Mensile / Giorno specifico.</div>
+      </div>
+      <div class="row">
+        <select id="repMode" style="width:170px;">
           <option value="daily">Giornaliero</option>
           <option value="monthly">Mensile</option>
-          <option value="pickday">Giorno specifico</option>
-          <option value="pickmonth">Mese specifico</option>
+          <option value="daypick">Seleziona giorno</option>
         </select>
-        <input type="date" id="reportDay" style="display:none">
-        <input type="month" id="reportMonth" style="display:none">
-        <button onclick="refreshReports()">Aggiorna</button>
-        <button onclick="window.print()">Stampa</button>
+        <input id="repDay" type="date" class="hidden" style="width:170px;">
+        <button class="btn primary" id="btnRepRun">Calcola</button>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <div class="grid two">
+      <div class="panel" style="padding:12px;">
+        <div style="font-weight:900;">Totali</div>
+        <div class="hr"></div>
+        <div class="row" style="justify-content:space-between;">
+          <div class="muted">Totale incassi (€)</div>
+          <div style="font-weight:900; font-size:20px;" id="repTotal">0.00</div>
+        </div>
+        <div class="row" style="justify-content:space-between; margin-top:10px;">
+          <div class="muted">Ordini completati</div>
+          <div style="font-weight:900;" id="repCount">0</div>
+        </div>
       </div>
 
-      <div id="reportsWrap"></div>
+      <div class="panel" style="padding:12px;">
+        <div style="font-weight:900;">Per canale</div>
+        <div class="hr"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Canale</th>
+              <th class="right">Incassi</th>
+              <th class="right" style="width:120px;">Ordini</th>
+            </tr>
+          </thead>
+          <tbody id="repByChannel"></tbody>
+        </table>
+      </div>
     </div>
-  </div>
 
+    <div class="hr"></div>
+
+    <div class="panel" style="padding:12px;">
+      <div style="font-weight:900;">Dettaglio ordini inclusi</div>
+      <div class="muted small">Solo ordini in stato “Completato”.</div>
+      <div class="hr"></div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:180px;">Data</th>
+            <th>Canale</th>
+            <th class="right" style="width:120px;">Incasso</th>
+          </tr>
+        </thead>
+        <tbody id="repOrders"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- IMPOSTAZIONI -->
+  <section id="tab-impostazioni" class="panel hidden">
+    <div style="font-weight:900;">Impostazioni</div>
+    <div class="muted">Password eliminazione + Supabase.</div>
+
+    <div class="hr"></div>
+
+    <div class="grid two">
+      <div class="panel" style="padding:12px;">
+        <div style="font-weight:900;">Password eliminazione magazzino</div>
+        <div class="muted">Serve per eliminare prodotti dal magazzino.</div>
+        <div class="hr"></div>
+        <label>Nuova password</label>
+        <input id="setDeletePass" type="password" placeholder="Imposta password...">
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="btnSavePass">Salva password</button>
+          <button class="btn" id="btnResetPass">Reset</button>
+        </div>
+        <div class="muted" style="margin-top:8px;">Se non imposti nulla, la password di default è: <b>1234</b></div>
+      </div>
+
+      <div class="panel" style="padding:12px;">
+        <div style="font-weight:900;">Supabase</div>
+        <div class="muted">Inserisci URL e ANON KEY nell’<b>app.js</b>. Se vuote → LocalStorage.</div>
+        <div class="hr"></div>
+        <div class="muted">
+          Quando Supabase è attivo, i dati sono online e li ritrovi da più PC.
+        </div>
+        <div class="hr"></div>
+        <button class="btn" id="btnTestSupabase">Test connessione</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden">
+  <div class="trow">
+    <div id="toastMsg" class="msg"></div>
+    <div id="toastClose" class="x">×</div>
+  </div>
 </div>
 
-<!-- Parse SDK -->
-<script src="https://unpkg.com/parse/dist/parse.min.js"></script>
-<script src="app.js"></script>
-
-<script>
-  function setActive(k){
-    ["new","prep","stock","reports"].forEach(x=>{
-      document.getElementById("tab-"+x)?.classList.toggle("active",x===k)
-    })
-  }
-  function syncReportFilters(){
-    reportDay.style.display = reportMode.value==="pickday"?"inline":"none";
-    reportMonth.style.display = reportMode.value==="pickmonth"?"inline":"none";
-  }
-</script>
-
+<script src="./app.js"></script>
 </body>
 </html>
