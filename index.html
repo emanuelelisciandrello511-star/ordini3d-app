@@ -1,325 +1,571 @@
-<!doctype html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Gestionale 3D</title>
+/* app.js — Pianeta 3D Lab (compatibile con il tuo index.html)
+   - Salvataggio in localStorage
+   - Ordini attivi + completati ultime 24h in tabella
+   - Board Produzione con colonne e regole accesso in Assemblaggio
+   - Vendite protette da password 1234, solo completati ultimi 365 giorni
+   - Export Excel Giorno / Mese in CSV (apre in Excel)
+*/
 
-  <!-- Supabase JS -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+(() => {
+  // ---------------------------
+  // Config
+  // ---------------------------
+  const LS_KEY = "p3dlab_orders_v1";
+  const SALES_UNLOCK_KEY = "p3dlab_sales_unlocked";
+  const SALES_PASSWORD = "1234";
 
-  <style>
-    :root{
-      --bg:#0b1220; --panel:#121b2e; --panel2:#0f172a; --text:#e5e7eb; --muted:#9ca3af;
-      --line:#22304b; --bad:#ef4444; --btn:#1f2a44; --btn2:#233152;
+  const STATUSES = [
+    "Ricevuto",
+    "Stampa",
+    "Post-Processing",
+    "Controllo Qualità",
+    "Assemblaggio",
+    "Spedizione",
+    "Completato",
+  ];
+
+  // ---------------------------
+  // Helpers
+  // ---------------------------
+  const now = () => Date.now();
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  function formatDateTime(ts) {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  function formatDate(ts) {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  }
+
+  function euro(n) {
+    const v = Number(n || 0);
+    return v.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+  }
+
+  function uid() {
+    return "ord_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+  }
+
+  function loadOrders() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      const data = raw ? JSON.parse(raw) : [];
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
     }
-    *{box-sizing:border-box; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
-    body{margin:0; background:linear-gradient(180deg,var(--bg),#070b14); color:var(--text);}
-    header{padding:16px 18px; border-bottom:1px solid var(--line); background:rgba(18,27,46,.75); position:sticky; top:0; z-index:10; backdrop-filter: blur(10px);}
-    .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
-    h1{margin:0; font-size:16px;}
-    .badge{font-size:12px; padding:6px 10px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:rgba(15,23,42,.6);}
-    .badge strong{color:var(--text);}
-    .tabs{display:flex; gap:8px; padding-top:10px; flex-wrap:wrap;}
-    .tab{border:1px solid var(--line); background:var(--btn); color:var(--text); padding:8px 12px; border-radius:10px; cursor:pointer; user-select:none;}
-    .tab.active{background:var(--btn2); outline:2px solid rgba(96,165,250,.25);}
-    main{max-width:1100px; margin:18px auto; padding:0 18px 30px;}
-    .panel{background:rgba(18,27,46,.75); border:1px solid var(--line); border-radius:16px; padding:14px; box-shadow:0 20px 50px rgba(0,0,0,.25);}
-    .grid{display:grid; gap:12px;}
-    .grid.two{grid-template-columns:1fr 1fr;}
-    @media (max-width:900px){.grid.two{grid-template-columns:1fr;}}
-    label{font-size:12px; color:var(--muted);}
-    input, select{
-      background:var(--panel2); border:1px solid var(--line); border-radius:10px;
-      padding:10px 10px; color:var(--text); outline:none; width:100%;
+  }
+
+  function saveOrders(orders) {
+    localStorage.setItem(LS_KEY, JSON.stringify(orders));
+  }
+
+  function updateOrder(id, patch) {
+    const orders = loadOrders();
+    const idx = orders.findIndex(o => o.id === id);
+    if (idx === -1) return;
+    orders[idx] = { ...orders[idx], ...patch, updatedAt: now() };
+    saveOrders(orders);
+    rerenderAll();
+  }
+
+  function withinHours(ts, h) {
+    return (now() - ts) <= h * 60 * 60 * 1000;
+  }
+
+  function withinDays(ts, d) {
+    return (now() - ts) <= d * 24 * 60 * 60 * 1000;
+  }
+
+  function sanitizeCsv(v) {
+    const s = String(v ?? "");
+    // quote if contains comma, quote or newline
+    if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+
+  function downloadTextFile(filename, text, mime = "text/plain;charset=utf-8") {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------------------------
+  // Routing / Tabs
+  // ---------------------------
+  function showNew() {
+    document.getElementById("page-new").classList.remove("hide");
+    document.getElementById("page-prep").classList.add("hide");
+    document.getElementById("page-sales").classList.add("hide");
+    refreshActiveTable();
+  }
+
+  function showPrep() {
+    document.getElementById("page-new").classList.add("hide");
+    document.getElementById("page-prep").classList.remove("hide");
+    document.getElementById("page-sales").classList.add("hide");
+    renderBoard();
+  }
+
+  function showSales() {
+    document.getElementById("page-new").classList.add("hide");
+    document.getElementById("page-prep").classList.add("hide");
+    document.getElementById("page-sales").classList.remove("hide");
+    refreshSales();
+  }
+
+  // Expose to window because index.html calls these
+  window.showNew = showNew;
+  window.showPrep = showPrep;
+
+  window.openSales = function openSales() {
+    const unlocked = localStorage.getItem(SALES_UNLOCK_KEY) === "1";
+    if (!unlocked) {
+      const pw = prompt("Password Vendite:");
+      if (pw !== SALES_PASSWORD) {
+        alert("Password errata.");
+        return;
+      }
+      localStorage.setItem(SALES_UNLOCK_KEY, "1");
     }
-    .btn{background:var(--btn); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:12px; cursor:pointer; user-select:none; font-weight:700;}
-    .btn:hover{filter:brightness(1.1);}
-    .btn.primary{background:#1d3b66; border-color:#274c82;}
-    .btn.danger{background:#3a1520; border-color:#6b1f2c;}
-    .btn.ghost{background:transparent;}
-    .muted{color:var(--muted); font-size:12px;}
-    .hr{height:1px; background:var(--line); margin:12px 0;}
-    table{width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:12px; border:1px solid var(--line);}
-    th, td{padding:10px 10px; border-bottom:1px solid var(--line); font-size:13px;}
-    th{background:rgba(15,23,42,.8); text-align:left; color:var(--muted); font-weight:800;}
-    tr:last-child td{border-bottom:none;}
-    .right{text-align:right;}
-    .center{text-align:center;}
-    .hidden{display:none !important;}
-    .rowZero{background: rgba(239,68,68,.14) !important;}
-    .rowZero td{border-bottom-color:rgba(239,68,68,.25);}
-    .pill{padding:4px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; display:inline-block; color:var(--muted);}
-    .pill.open{border-color:rgba(96,165,250,.35); background:rgba(96,165,250,.10);}
-    .pill.done{border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.10); color:#bfe8c9;}
-    .pill.cancel{border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.10); color:#f7c2c2;}
-    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-      font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:rgba(2,6,23,.35);
+    setActive("sales");
+    showSales();
+  };
+
+  window.lockSales = function lockSales() {
+    localStorage.removeItem(SALES_UNLOCK_KEY);
+    alert("Vendite bloccate.");
+    setActive("new");
+    showNew();
+  };
+
+  // ---------------------------
+  // Add Order (Nuovo ordine)
+  // ---------------------------
+  window.addOrder = function addOrder() {
+    const cliente = (document.getElementById("cliente").value || "").trim();
+    const sito = (document.getElementById("sito").value || "").trim();
+    const progetto = (document.getElementById("progetto").value || "").trim();
+    const prezzo = Number(document.getElementById("prezzo").value || 0);
+    const note = (document.getElementById("note").value || "").trim();
+
+    if (!progetto) {
+      alert("Inserisci Numero progetto (ARTICOLO).");
+      return;
     }
-    .toast{
-      position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
-      background:rgba(15,23,42,.95); border:1px solid var(--line); border-radius:14px;
-      padding:10px 12px; color:var(--text); min-width:280px; max-width:680px;
-      box-shadow:0 15px 45px rgba(0,0,0,.35); z-index:999;
+    if (!cliente) {
+      alert("Inserisci Cliente.");
+      return;
     }
-    .toast .trow{display:flex; align-items:center; justify-content:space-between; gap:12px;}
-    .toast .msg{font-size:13px;}
-    .toast .x{cursor:pointer; color:var(--muted); font-weight:900; padding:2px 8px;}
-  </style>
-</head>
+    if (!sito) {
+      alert("Inserisci Sito vendita.");
+      return;
+    }
 
-<body>
-<header>
-  <div class="row" style="justify-content:space-between;">
-    <h1>Gestionale 3D</h1>
-    <div class="row">
-      <span id="syncBadge" class="badge">Storage: <strong>Local</strong></span>
-      <button class="btn ghost" id="btnReload" type="button">Ricarica</button>
-    </div>
-  </div>
+    const ts = now();
+    const order = {
+      id: uid(),
+      articolo: progetto,
+      cliente,
+      sito,
+      prezzo: isFinite(prezzo) ? prezzo : 0,
+      note,
+      status: "Ricevuto",
+      createdAt: ts,
+      updatedAt: ts,
+      // flags QC
+      frontOk: false,
+      backOk: false,
+    };
 
-  <div class="tabs">
-    <button class="tab active" data-tab="magazzino" type="button">Magazzino</button>
-    <button class="tab" data-tab="ordini" type="button">Ordini (veloce)</button>
-    <button class="tab" data-tab="incassi" type="button">Report incassi</button>
-    <button class="tab" data-tab="impostazioni" type="button">Impostazioni</button>
-  </div>
-</header>
+    const orders = loadOrders();
+    // se stesso articolo esiste ancora attivo, avvisa
+    const existsActive = orders.some(o => o.articolo === order.articolo && o.status !== "Completato");
+    if (existsActive) {
+      const ok = confirm("Esiste già un ordine attivo con lo stesso ARTICOLO. Vuoi inserirlo lo stesso?");
+      if (!ok) return;
+    }
 
-<main>
-  <!-- MAGAZZINO -->
-  <section id="tab-magazzino" class="panel">
-    <div class="row" style="justify-content:space-between;">
-      <div>
-        <div style="font-weight:900;">Magazzino</div>
-        <div class="muted">Quantità = 0 → riga intera rossa. Eliminazione con password.</div>
-      </div>
-      <div class="row">
-        <input id="invSearch" placeholder="Cerca codice..." style="width:220px;">
-        <button class="btn" id="btnInvRefresh" type="button">Aggiorna</button>
-      </div>
-    </div>
+    orders.unshift(order);
+    saveOrders(orders);
 
-    <div class="hr"></div>
+    // reset campi
+    document.getElementById("cliente").value = "";
+    document.getElementById("sito").value = "";
+    document.getElementById("progetto").value = "";
+    document.getElementById("prezzo").value = "";
+    document.getElementById("note").value = "";
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div class="row" style="align-items:flex-end;">
-          <div style="flex:1;">
-            <label>Codice prodotto</label>
-            <input id="invCode" placeholder="ES: LAMP-RED-BULL-01" autocomplete="off">
+    alert("Ordine inserito in Produzione.");
+    refreshActiveTable();
+  };
+
+  // ---------------------------
+  // Active table (Nuovo ordine)
+  // ---------------------------
+  window.refreshActiveTable = function refreshActiveTable() {
+    const tbody = document.getElementById("activeTbody");
+    if (!tbody) return;
+
+    const orders = loadOrders();
+
+    // "Ordini attivi" = non completati + completati nelle ultime 24 ore
+    const list = orders.filter(o => o.status !== "Completato" || withinHours(o.updatedAt || o.createdAt, 24));
+
+    tbody.innerHTML = "";
+
+    if (!list.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="7" class="muted">Nessun ordine.</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    for (const o of list) {
+      const tr = document.createElement("tr");
+      const pillClass =
+        o.status === "Completato" ? "ok" :
+        o.status === "Assemblaggio" ? "info" :
+        o.status === "Controllo Qualità" ? "warn" : "";
+
+      tr.innerHTML = `
+        <td><b>${escapeHtml(o.articolo)}</b></td>
+        <td>${escapeHtml(o.cliente)}</td>
+        <td>${escapeHtml(o.sito)}</td>
+        <td>${euro(o.prezzo)}</td>
+        <td><span class="pill ${pillClass}">${escapeHtml(o.status)}</span></td>
+        <td>${formatDateTime(o.createdAt)}</td>
+        <td>${formatDateTime(o.updatedAt || o.createdAt)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  };
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  // ---------------------------
+  // Board Produzione
+  // ---------------------------
+  function canMoveToAssemblaggio(order) {
+    return !!order.frontOk && !!order.backOk;
+  }
+
+  function nextStatus(current) {
+    const i = STATUSES.indexOf(current);
+    if (i === -1) return current;
+    return STATUSES[Math.min(i + 1, STATUSES.length - 1)];
+  }
+
+  function prevStatus(current) {
+    const i = STATUSES.indexOf(current);
+    if (i === -1) return current;
+    return STATUSES[Math.max(i - 1, 0)];
+  }
+
+  function renderBoard() {
+    const board = document.getElementById("board");
+    if (!board) return;
+
+    const orders = loadOrders().filter(o => o.status !== "Completato"); // in produzione solo non completati
+
+    // group
+    const byStatus = Object.fromEntries(STATUSES.map(s => [s, []]));
+    for (const o of orders) {
+      if (!byStatus[o.status]) byStatus[o.status] = [];
+      byStatus[o.status].push(o);
+    }
+
+    board.innerHTML = "";
+
+    for (const st of STATUSES) {
+      if (st === "Completato") continue;
+
+      const col = document.createElement("div");
+      col.className = "col";
+      const items = byStatus[st] || [];
+
+      col.innerHTML = `
+        <h2>
+          <span>${st}</span>
+          <span class="count">${items.length}</span>
+        </h2>
+        <div id="col-${cssSafe(st)}"></div>
+      `;
+      board.appendChild(col);
+
+      const holder = col.querySelector(`#col-${cssSafe(st)}`);
+
+      if (!items.length) {
+        holder.innerHTML = `<div class="muted">Vuoto</div>`;
+        continue;
+      }
+
+      for (const o of items.sort((a,b) => (b.updatedAt||0) - (a.updatedAt||0))) {
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const warnAsm = (st === "Controllo Qualità" && !canMoveToAssemblaggio(o))
+          ? `<div class="muted">Per andare in <b>Assemblaggio</b>: serve <b>Frontale OK</b> + <b>Posteriore OK</b>.</div>`
+          : "";
+
+        const frontBadge = o.frontOk ? `<span class="pill ok">Frontale OK</span>` : `<span class="pill warn">Frontale NO</span>`;
+        const backBadge  = o.backOk  ? `<span class="pill ok">Posteriore OK</span>` : `<span class="pill warn">Posteriore NO</span>`;
+
+        card.innerHTML = `
+          <div class="title">${escapeHtml(o.articolo)} <span class="muted">• ${escapeHtml(o.sito)}</span></div>
+          <div class="meta">
+            <div><b>Cliente:</b> ${escapeHtml(o.cliente)}</div>
+            <div><b>Prezzo:</b> ${euro(o.prezzo)} ${o.note ? `• <b>Note:</b> ${escapeHtml(o.note)}` : ""}</div>
+            <div><b>Creato:</b> ${formatDateTime(o.createdAt)} • <b>Agg:</b> ${formatDateTime(o.updatedAt||o.createdAt)}</div>
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${frontBadge}${backBadge}</div>
           </div>
-          <div style="width:160px;">
-            <label>Quantità</label>
-            <input id="invQty" type="number" min="0" step="1" value="1">
+          <div class="actions" style="margin-top:10px">
+            <button class="small" data-act="front">${o.frontOk ? "Frontale: OK" : "Frontale: segna OK"}</button>
+            <button class="small" data-act="back">${o.backOk ? "Posteriore: OK" : "Posteriore: segna OK"}</button>
+            <button class="small" data-act="prev">← Indietro</button>
+            <button class="small ok" data-act="next">Avanti →</button>
+            <button class="small danger" data-act="del">Elimina</button>
+            <button class="small done" data-act="done">Completato ✅</button>
           </div>
-          <button class="btn primary" id="btnInvSave" style="width:160px;" type="button">Salva</button>
-        </div>
-      </div>
+          <div style="margin-top:8px">${warnAsm}</div>
+        `;
 
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Azioni</div>
-        <div class="muted">Seleziona una riga e poi elimina.</div>
-        <div class="hr"></div>
-        <div class="row">
-          <button class="btn danger" id="btnInvDeleteSelected" type="button">Elimina selezionato</button>
-          <button class="btn" id="btnInvExport" type="button">Esporta JSON</button>
-        </div>
-      </div>
-    </div>
+        // actions
+        const btnFront = card.querySelector(`[data-act="front"]`);
+        const btnBack  = card.querySelector(`[data-act="back"]`);
+        const btnPrev  = card.querySelector(`[data-act="prev"]`);
+        const btnNext  = card.querySelector(`[data-act="next"]`);
+        const btnDel   = card.querySelector(`[data-act="del"]`);
+        const btnDone  = card.querySelector(`[data-act="done"]`);
 
-    <div class="hr"></div>
+        btnFront.onclick = () => updateOrder(o.id, { frontOk: true });
+        btnBack.onclick  = () => updateOrder(o.id, { backOk: true });
 
-    <table>
-      <thead>
-        <tr>
-          <th class="center" style="width:56px;">Sel</th>
-          <th>Codice</th>
-          <th class="right" style="width:140px;">Quantità</th>
-          <th style="width:200px;">Aggiornato</th>
-        </tr>
-      </thead>
-      <tbody id="invTbody"></tbody>
-    </table>
-  </section>
+        btnPrev.onclick = () => {
+          const target = prevStatus(o.status);
+          updateOrder(o.id, { status: target });
+        };
 
-  <!-- ORDINI -->
-  <section id="tab-ordini" class="panel hidden">
-    <div class="row" style="justify-content:space-between;">
-      <div>
-        <div style="font-weight:900;">Ordini (veloce)</div>
-        <div class="muted">
-          <span class="kbd">↑</span><span class="kbd">↓</span>,
-          <span class="kbd">Enter</span> nuova riga,
-          <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> salva ordine.
-        </div>
-      </div>
-      <button class="btn" id="btnOrdersRefresh" type="button">Aggiorna</button>
-    </div>
+        btnNext.onclick = () => {
+          let target = nextStatus(o.status);
 
-    <div class="hr"></div>
+          // regola: in Assemblaggio SOLO con frontOk+backOk
+          if (target === "Assemblaggio" && !canMoveToAssemblaggio(o)) {
+            alert("Non puoi spostare in Assemblaggio: servono Frontale OK + Posteriore OK.");
+            return;
+          }
+          updateOrder(o.id, { status: target });
+        };
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div class="row">
-          <div style="flex:1;">
-            <label>Canale</label>
-            <select id="ordChannel">
-              <option value="Catawiki">Catawiki</option>
-              <option value="eBay-1">eBay-1</option>
-              <option value="eBay-2">eBay-2</option>
-              <option value="Vinted-1">Vinted-1</option>
-              <option value="Vinted-2">Vinted-2</option>
-              <option value="Etsy-1">Etsy-1</option>
-              <option value="Etsy-2">Etsy-2</option>
-              <option value="Wallapop-1">Wallapop-1</option>
-              <option value="Wallapop-2">Wallapop-2</option>
-              <option value="Altro">Altro</option>
-            </select>
+        btnDone.onclick = () => {
+          if (!confirm("Segnare come COMPLETATO? Andrà nelle Vendite.")) return;
+          updateOrder(o.id, { status: "Completato" });
+        };
+
+        btnDel.onclick = () => {
+          if (!confirm("Eliminare definitivamente questo ordine?")) return;
+          const orders = loadOrders().filter(x => x.id !== o.id);
+          saveOrders(orders);
+          rerenderAll();
+        };
+
+        holder.appendChild(card);
+      }
+    }
+  }
+
+  function cssSafe(s) {
+    return s.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
+  }
+
+  // ---------------------------
+  // Vendite (protetta)
+  // ---------------------------
+  window.refreshSales = function refreshSales() {
+    const wrap = document.getElementById("salesWrap");
+    if (!wrap) return;
+
+    const orders = loadOrders()
+      .filter(o => o.status === "Completato")
+      .filter(o => withinDays(o.updatedAt || o.createdAt, 365));
+
+    // group by day
+    const map = new Map();
+    for (const o of orders) {
+      const day = formatDate(o.updatedAt || o.createdAt);
+      if (!map.has(day)) map.set(day, []);
+      map.get(day).push(o);
+    }
+
+    const days = Array.from(map.keys()).sort((a,b) => (a < b ? 1 : -1)); // desc
+
+    if (!days.length) {
+      wrap.innerHTML = `<div class="muted">Nessuna vendita completata negli ultimi 365 giorni.</div>`;
+      return;
+    }
+
+    let html = "";
+    for (const day of days) {
+      const items = map.get(day).sort((a,b) => (b.updatedAt||0)-(a.updatedAt||0));
+      const total = items.reduce((s,o) => s + Number(o.prezzo||0), 0);
+
+      html += `
+        <div class="panel" style="margin-bottom:10px">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <b>${day}</b>
+            <span class="pill ok">Totale: ${euro(total)}</span>
           </div>
-          <div style="width:180px;">
-            <label>Incasso (€)</label>
-            <input id="ordTotal" type="number" min="0" step="0.01" placeholder="0.00">
-          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th><th>Completato</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map(o => `
+                <tr>
+                  <td><b>${escapeHtml(o.articolo)}</b></td>
+                  <td>${escapeHtml(o.cliente)}</td>
+                  <td>${escapeHtml(o.sito)}</td>
+                  <td>${euro(o.prezzo)}</td>
+                  <td>${formatDateTime(o.updatedAt||o.createdAt)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
         </div>
+      `;
+    }
 
-        <div class="hr"></div>
+    wrap.innerHTML = html;
+  };
 
-        <table>
-          <thead>
-            <tr>
-              <th>Codice</th>
-              <th class="right" style="width:120px;">Q.tà</th>
-              <th class="center" style="width:72px;">X</th>
-            </tr>
-          </thead>
-          <tbody id="orderLinesTbody"></tbody>
-        </table>
+  // ---------------------------
+  // Export CSV (Excel)
+  // ---------------------------
+  function getCompletedOrders() {
+    return loadOrders()
+      .filter(o => o.status === "Completato")
+      .filter(o => withinDays(o.updatedAt || o.createdAt, 365));
+  }
 
-        <div class="row" style="margin-top:10px;">
-          <button class="btn" id="btnAddLine" type="button">+ Riga</button>
-          <button class="btn primary" id="btnSaveOrder" type="button">Salva</button>
-          <button class="btn" id="btnClearOrder" type="button">Pulisci</button>
-        </div>
-      </div>
+  window.downloadSalesDaily = function downloadSalesDaily() {
+    // esporta solo il giorno corrente
+    const today = formatDate(now());
+    const items = getCompletedOrders().filter(o => formatDate(o.updatedAt || o.createdAt) === today);
 
-      <div class="panel" style="padding:12px;">
-        <div class="row" style="justify-content:space-between;">
-          <div>
-            <div style="font-weight:900;">Lista ordini</div>
-            <div class="muted">Completa / annulla.</div>
-          </div>
-          <select id="ordersFilter" style="width:170px;">
-            <option value="open">Aperti</option>
-            <option value="all">Tutti</option>
-            <option value="done">Completati</option>
-            <option value="cancelled">Annullati</option>
-          </select>
-        </div>
+    if (!items.length) {
+      alert("Nessuna vendita completata oggi.");
+      return;
+    }
 
-        <div class="hr"></div>
+    const header = ["Giorno", "Articolo", "Cliente", "Sito", "Prezzo", "Creato", "Completato", "Note"];
+    const rows = items.map(o => [
+      today,
+      o.articolo,
+      o.cliente,
+      o.sito,
+      o.prezzo,
+      formatDateTime(o.createdAt),
+      formatDateTime(o.updatedAt || o.createdAt),
+      o.note || "",
+    ]);
 
-        <table>
-          <thead>
-            <tr>
-              <th style="width:180px;">Data</th>
-              <th>Canale</th>
-              <th class="right" style="width:120px;">Incasso</th>
-              <th style="width:120px;">Stato</th>
-              <th class="center" style="width:150px;">Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="ordersTbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
+    const csv = [header, ...rows].map(r => r.map(sanitizeCsv).join(",")).join("\n");
+    downloadTextFile(`vendite_${today}.csv`, csv, "text/csv;charset=utf-8");
+  };
 
-  <!-- REPORT -->
-  <section id="tab-incassi" class="panel hidden">
-    <div class="row" style="justify-content:space-between;">
-      <div>
-        <div style="font-weight:900;">Report incassi</div>
-        <div class="muted">Solo ordini “Completato”.</div>
-      </div>
-      <div class="row">
-        <select id="repMode" style="width:170px;">
-          <option value="daily">Giornaliero</option>
-          <option value="monthly">Mensile</option>
-          <option value="daypick">Seleziona giorno</option>
-        </select>
-        <input id="repDay" type="date" class="hidden" style="width:170px;">
-        <button class="btn primary" id="btnRepRun" type="button">Calcola</button>
-      </div>
-    </div>
+  window.downloadSalesMonthly = function downloadSalesMonthly() {
+    // esporta mese corrente
+    const d = new Date();
+    const ym = `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
 
-    <div class="hr"></div>
+    const items = getCompletedOrders().filter(o => {
+      const day = formatDate(o.updatedAt || o.createdAt);
+      return day.startsWith(ym);
+    });
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div class="row" style="justify-content:space-between;">
-          <div class="muted">Totale incassi (€)</div>
-          <div style="font-weight:900; font-size:20px;" id="repTotal">0.00</div>
-        </div>
-        <div class="row" style="justify-content:space-between; margin-top:10px;">
-          <div class="muted">Ordini completati</div>
-          <div style="font-weight:900;" id="repCount">0</div>
-        </div>
-      </div>
+    if (!items.length) {
+      alert("Nessuna vendita completata in questo mese.");
+      return;
+    }
 
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Per canale</div>
-        <div class="hr"></div>
-        <table>
-          <thead>
-            <tr>
-              <th>Canale</th>
-              <th class="right">Incassi</th>
-              <th class="right" style="width:120px;">Ordini</th>
-            </tr>
-          </thead>
-          <tbody id="repByChannel"></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
+    const header = ["Giorno", "Articolo", "Cliente", "Sito", "Prezzo", "Creato", "Completato", "Note"];
+    const rows = items.map(o => [
+      formatDate(o.updatedAt || o.createdAt),
+      o.articolo,
+      o.cliente,
+      o.sito,
+      o.prezzo,
+      formatDateTime(o.createdAt),
+      formatDateTime(o.updatedAt || o.createdAt),
+      o.note || "",
+    ]);
 
-  <!-- IMPOSTAZIONI -->
-  <section id="tab-impostazioni" class="panel hidden">
-    <div style="font-weight:900;">Impostazioni</div>
-    <div class="muted">Password eliminazione + test Supabase.</div>
-    <div class="hr"></div>
+    const csv = [header, ...rows].map(r => r.map(sanitizeCsv).join(",")).join("\n");
+    downloadTextFile(`vendite_${ym}.csv`, csv, "text/csv;charset=utf-8");
+  };
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Password eliminazione</div>
-        <div class="muted">Default: <b>1234</b></div>
-        <div class="hr"></div>
+  // ---------------------------
+  // Render all
+  // ---------------------------
+  function rerenderAll() {
+    // se sei su new -> tabella
+    const isNewVisible = !document.getElementById("page-new").classList.contains("hide");
+    const isPrepVisible = !document.getElementById("page-prep").classList.contains("hide");
+    const isSalesVisible = !document.getElementById("page-sales").classList.contains("hide");
 
-        <label>Nuova password</label>
-        <input id="setDeletePass" type="password" placeholder="Imposta password...">
-        <div class="row" style="margin-top:10px;">
-          <button class="btn primary" id="btnSavePass" type="button">Salva</button>
-          <button class="btn" id="btnResetPass" type="button">Reset</button>
-        </div>
-      </div>
+    if (isNewVisible) refreshActiveTable();
+    if (isPrepVisible) renderBoard();
+    if (isSalesVisible) refreshSales();
+  }
 
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Supabase</div>
-        <div class="hr"></div>
-        <button class="btn" id="btnTestSupabase" type="button">Test connessione</button>
-      </div>
-    </div>
-  </section>
-</main>
+  // ---------------------------
+  // Auto-clean: completati >24h spariscono (solo completati)
+  // ---------------------------
+  function cleanupCompletedOlderThan24h() {
+    const orders = loadOrders();
+    const cleaned = orders.filter(o => {
+      if (o.status !== "Completato") return true;
+      const ts = o.updatedAt || o.createdAt;
+      return withinHours(ts, 24);
+    });
+    if (cleaned.length !== orders.length) saveOrders(cleaned);
+  }
 
-<div id="toast" class="toast hidden">
-  <div class="trow">
-    <div id="toastMsg" class="msg"></div>
-    <div id="toastClose" class="x">×</div>
-  </div>
-</div>
+  // ---------------------------
+  // Init
+  // ---------------------------
+  function init() {
+    cleanupCompletedOlderThan24h();
 
-<script src="./app.js"></script>
-</body>
-</html>
+    // default view: New
+    setActive("new");
+    showNew();
+
+    // periodic cleanup
+    setInterval(() => {
+      cleanupCompletedOlderThan24h();
+      rerenderAll();
+    }, 60 * 1000);
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+})();
