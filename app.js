@@ -1,14 +1,14 @@
 /* =========================
-   ORDINI 3D - LAB (FULL v5.1)
+   ORDINI 3D - LAB (FULL v5.2)
    - colonne colorate
    - tabella "ordini attivi"
    - vendite protette (password 0000)
    - COMPLETATO: sparisce da operativo dopo 24h
    - Vendite: memoria 365 giorni
-   - Export Excel (CSV): Check, Giorno, CodiceProdotto, Vendita + TOTALE
+   - Export Excel (CSV): A=Giorno, B=Prodotto, C=Prezzo + TOTALE
    ========================= */
 
-const LS_KEY = "ordini3d_orders_v5_1";
+const LS_KEY = "ordini3d_orders_v5_2";
 
 /* ====== RETENTION / TTL ====== */
 const DONE_TTL_MS = 24 * 60 * 60 * 1000;              // 24 ore visibilità operativa
@@ -232,7 +232,6 @@ function removeOrder(id){
 
 /* ---------- FILTRI COLONNE ---------- */
 function inCol(o, colId){
-  // COMPLETATO scaduti (oltre 24h) non appaiono nell'operativo
   if(!isCompletedVisibleOperational(o)) return false;
 
   if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
@@ -359,7 +358,6 @@ function refreshActiveTable(){
   const tbody = $("activeTbody");
   if(!tbody) return;
 
-  // Attivi = tutto ciò che è operativo (inclusi completati <24h)
   const actives = orders.filter(o => isCompletedVisibleOperational(o));
 
   tbody.innerHTML = "";
@@ -482,7 +480,7 @@ function refreshSales(){
   });
 }
 
-/* ---------- EXPORT EXCEL (CSV) - CHECK, GIORNO, CODICE, VENDITA + TOTALE ---------- */
+/* ---------- EXPORT EXCEL (CSV) - A=GIORNO, B=PRODOTTO, C=PREZZO + TOTALE ---------- */
 function csvCell(v){
   const s = String(v ?? "");
   if(/[",\n]/.test(s)){
@@ -503,16 +501,16 @@ function downloadBlob(filename, content, mime){
   URL.revokeObjectURL(url);
 }
 
-function toCsvExcelClean(ordersList){
+// CSV con 3 colonne: Giorno, Prodotto, Prezzo
+function toCsvABC(ordersList){
   const lines = [];
-  lines.push("Check,Giorno,CodiceProdotto,Vendita");
+  lines.push("Giorno,Prodotto,Prezzo");
 
   ordersList.forEach(o=>{
     const iso = o.completedAt || o.updatedAt || o.createdAt;
     const day = dateKey(iso);
 
     lines.push([
-      "☑",
       csvCell(day),
       csvCell(o.articolo || ""),
       csvCell(euro(o.prezzo))
@@ -520,7 +518,8 @@ function toCsvExcelClean(ordersList){
   });
 
   const total = ordersList.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
-  lines.push([ "", "", "TOTALE", euro(total) ].join(","));
+  // riga totale senza cambiare numero colonne
+  lines.push([ "", "TOTALE", euro(total) ].join(","));
 
   return lines.join("\n");
 }
@@ -534,7 +533,7 @@ function downloadSalesDaily(){
   const rows = getSalesCompleted365()
     .filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt) === target);
 
-  downloadBlob(`vendite_${target}.csv`, toCsvExcelClean(rows), "text/csv;charset=utf-8");
+  downloadBlob(`vendite_${target}.csv`, toCsvABC(rows), "text/csv;charset=utf-8");
 }
 
 // Export mese: chiede YYYY-MM (vuoto = mese corrente)
@@ -547,7 +546,7 @@ function downloadSalesMonthly(){
   const rows = getSalesCompleted365()
     .filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt).slice(0,7) === target);
 
-  downloadBlob(`vendite_${target}.csv`, toCsvExcelClean(rows), "text/csv;charset=utf-8");
+  downloadBlob(`vendite_${target}.csv`, toCsvABC(rows), "text/csv;charset=utf-8");
 }
 
 /* ---------- START ---------- */
@@ -555,7 +554,6 @@ document.addEventListener("DOMContentLoaded", () => {
   pruneOldCompleted();
   showNew();
 
-  // refresh per far sparire i completati scaduti senza reload
   setInterval(() => {
     const pageNew = $("page-new");
     if(pageNew && !pageNew.classList.contains("hide")){
@@ -571,5 +569,5 @@ document.addEventListener("DOMContentLoaded", () => {
     if(pageSales && !pageSales.classList.contains("hide")){
       refreshSales();
     }
-  }, 60000); // 1 minuto
+  }, 60000);
 });
