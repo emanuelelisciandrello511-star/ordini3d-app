@@ -1,17 +1,17 @@
 /* =========================
-   ORDINI 3D - LAB (FULL v5)
-   - colori colonne
-   - tabella "ordini attivi" aggiornata
-   - pagina Vendite protetta (0000)
-   - COMPLETATO: visibile in operativo solo 24h, poi sparisce da board+attivi
-   - Vendite: memoria 365 giorni (retention)
-   - Export Excel (CSV) giornaliero / mensile
+   ORDINI 3D - LAB (FULL v5.1)
+   - colonne colorate
+   - tabella "ordini attivi"
+   - vendite protette (password 0000)
+   - COMPLETATO: sparisce da operativo dopo 24h
+   - Vendite: memoria 365 giorni
+   - Export Excel (CSV): Check, Giorno, CodiceProdotto, Vendita + TOTALE
    ========================= */
 
-const LS_KEY = "ordini3d_orders_v5";
+const LS_KEY = "ordini3d_orders_v5_1";
 
 /* ====== RETENTION / TTL ====== */
-const DONE_TTL_MS = 24 * 60 * 60 * 1000;        // 24 ore (sparisce dall'operativo)
+const DONE_TTL_MS = 24 * 60 * 60 * 1000;              // 24 ore visibilità operativa
 const SALES_RETENTION_MS = 365 * 24 * 60 * 60 * 1000; // 365 giorni vendite
 
 /* ---------- LOAD/SAVE ---------- */
@@ -67,18 +67,18 @@ function touch(o){
 function nowMs(){ return Date.now(); }
 
 /* ====== REGOLE VISIBILITA / RETENTION ====== */
-
-// COMPLETATO visibile in operativo solo 24h
 function completedTsMs(o){
   const iso = o.completedAt || o.updatedAt || o.createdAt;
   return iso ? new Date(iso).getTime() : 0;
 }
+
+// COMPLETATO visibile in operativo solo 24h
 function isCompletedVisibleOperational(o){
   if(o.flow !== FLOW.COMPLETATO) return true;
   return (nowMs() - completedTsMs(o)) <= DONE_TTL_MS;
 }
 
-// Rimuove completati più vecchi di 365 giorni (per vendite)
+// Elimina completati più vecchi di 365 giorni (vendite)
 function pruneOldCompleted(){
   const t = nowMs();
   const before = orders.length;
@@ -123,7 +123,6 @@ function addOrder(){
   const prezzo   = $("prezzo")?.value.trim();
   const note     = $("note")?.value.trim();
 
-  // tu prima richiedevi tutti obbligatori
   if(!cliente || !sito || !articolo || !prezzo){
     alert("Compila Cliente, Sito vendita, Numero progetto e Prezzo.");
     return;
@@ -194,7 +193,7 @@ function goPrev(id){
   if(o.flow === FLOW.SPEDIZIONE) o.flow = FLOW.ASSEMBLAGGIO;
   else if(o.flow === FLOW.COMPLETATO) {
     o.flow = FLOW.SPEDIZIONE;
-    o.completedAt = null; // se torna indietro, non è più completato
+    o.completedAt = null;
   }
   else if(o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.PREPARAZIONE;
 
@@ -212,7 +211,7 @@ function goNext(id){
   if(o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.SPEDIZIONE;
   else if(o.flow === FLOW.SPEDIZIONE){
     o.flow = FLOW.COMPLETATO;
-    o.completedAt = new Date().toISOString(); // parte la regola 24h + vendite 365gg
+    o.completedAt = new Date().toISOString();
   }
 
   touch(o);
@@ -233,16 +232,15 @@ function removeOrder(id){
 
 /* ---------- FILTRI COLONNE ---------- */
 function inCol(o, colId){
-  // NOTA: per l'operativo, i COMPLETATO oltre 24h non devono apparire da nessuna parte
-  const visibleOp = isCompletedVisibleOperational(o);
-  if(!visibleOp) return false;
+  // COMPLETATO scaduti (oltre 24h) non appaiono nell'operativo
+  if(!isCompletedVisibleOperational(o)) return false;
 
   if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
   if(colId === "FRONTALE") return o.flow === FLOW.PREPARAZIONE && !o.frontaleOK;
   if(colId === "POSTERIORE") return o.flow === FLOW.PREPARAZIONE && !o.posterioreOK;
   if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
   if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
-  if(colId === "COMPLETATO") return o.flow === FLOW.COMPLETATO; // già filtrato 24h sopra
+  if(colId === "COMPLETATO") return o.flow === FLOW.COMPLETATO;
   return false;
 }
 
@@ -303,7 +301,6 @@ function render(){
       const actions = document.createElement("div");
       actions.className = "actions";
 
-      // Bottoni "blindati"
       if(colDef.id === "FRONTALE"){
         const b = document.createElement("button");
         b.className = "small ok";
@@ -362,7 +359,7 @@ function refreshActiveTable(){
   const tbody = $("activeTbody");
   if(!tbody) return;
 
-  // Attivi = tutti tranne completati "scaduti" (oltre 24h)
+  // Attivi = tutto ciò che è operativo (inclusi completati <24h)
   const actives = orders.filter(o => isCompletedVisibleOperational(o));
 
   tbody.innerHTML = "";
@@ -485,9 +482,7 @@ function refreshSales(){
   });
 }
 
-/* ---------- EXPORT EXCEL (CSV) ---------- */
-// Ti scarica un CSV apribile in Excel
-
+/* ---------- EXPORT EXCEL (CSV) - CHECK, GIORNO, CODICE, VENDITA + TOTALE ---------- */
 function csvCell(v){
   const s = String(v ?? "");
   if(/[",\n]/.test(s)){
@@ -508,30 +503,24 @@ function downloadBlob(filename, content, mime){
   URL.revokeObjectURL(url);
 }
 
-function toCsv(ordersList){
-  const header = ["Data","Ora","Articolo","Cliente","Sito","Prezzo_EUR","Note"];
-  const lines = [header.join(",")];
+function toCsvExcelClean(ordersList){
+  const lines = [];
+  lines.push("Check,Giorno,CodiceProdotto,Vendita");
 
   ordersList.forEach(o=>{
     const iso = o.completedAt || o.updatedAt || o.createdAt;
-    const d = new Date(iso);
     const day = dateKey(iso);
-    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
     lines.push([
+      "☑",
       csvCell(day),
-      csvCell(time),
-      csvCell(o.articolo),
-      csvCell(o.cliente),
-      csvCell(o.sito),
-      csvCell(euro(o.prezzo)),
-      csvCell(o.note || "")
+      csvCell(o.articolo || ""),
+      csvCell(euro(o.prezzo))
     ].join(","));
   });
 
   const total = ordersList.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
-  lines.push("");
-  lines.push(`Totale,,,,,${euro(total)},`);
+  lines.push([ "", "", "TOTALE", euro(total) ].join(","));
 
   return lines.join("\n");
 }
@@ -539,13 +528,13 @@ function toCsv(ordersList){
 // Export giorno: chiede data YYYY-MM-DD (vuoto = oggi)
 function downloadSalesDaily(){
   const input = prompt("Data (YYYY-MM-DD). Vuoto = oggi:", "");
-  const todayIso = new Date().toISOString();
-  const todayKey = dateKey(todayIso);
+  const todayKey = dateKey(new Date().toISOString());
   const target = (input && /^\d{4}-\d{2}-\d{2}$/.test(input)) ? input : todayKey;
 
-  const completed = getSalesCompleted365().filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt) === target);
-  const csv = toCsv(completed);
-  downloadBlob(`vendite_${target}.csv`, csv, "text/csv;charset=utf-8");
+  const rows = getSalesCompleted365()
+    .filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt) === target);
+
+  downloadBlob(`vendite_${target}.csv`, toCsvExcelClean(rows), "text/csv;charset=utf-8");
 }
 
 // Export mese: chiede YYYY-MM (vuoto = mese corrente)
@@ -555,40 +544,32 @@ function downloadSalesMonthly(){
   const curr = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
   const target = (input && /^\d{4}-\d{2}$/.test(input)) ? input : curr;
 
-  const completed = getSalesCompleted365().filter(o => {
-    const k = dateKey(o.completedAt || o.updatedAt || o.createdAt);
-    return k.slice(0,7) === target;
-  });
+  const rows = getSalesCompleted365()
+    .filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt).slice(0,7) === target);
 
-  const csv = toCsv(completed);
-  downloadBlob(`vendite_${target}.csv`, csv, "text/csv;charset=utf-8");
+  downloadBlob(`vendite_${target}.csv`, toCsvExcelClean(rows), "text/csv;charset=utf-8");
 }
 
 /* ---------- START ---------- */
 document.addEventListener("DOMContentLoaded", () => {
-  // pulizia retention 365gg all'avvio
   pruneOldCompleted();
-
   showNew();
 
-  // Refresh: fa sparire i completati scaduti senza ricaricare pagina
+  // refresh per far sparire i completati scaduti senza reload
   setInterval(() => {
-    // Nuovo ordine: aggiorna tabella attivi
     const pageNew = $("page-new");
     if(pageNew && !pageNew.classList.contains("hide")){
       refreshActiveTable();
     }
 
-    // Produzione: aggiorna board
     const pagePrep = $("page-prep");
     if(pagePrep && !pagePrep.classList.contains("hide")){
       render();
     }
 
-    // Vendite: aggiorna se visibile
     const pageSales = $("page-sales");
     if(pageSales && !pageSales.classList.contains("hide")){
       refreshSales();
     }
-  }, 60000); // ogni 60s
+  }, 60000); // 1 minuto
 });
