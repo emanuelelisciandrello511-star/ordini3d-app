@@ -1,362 +1,591 @@
-<!doctype html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Gestionale 3D - Magazzino & Ordini</title>
+/* =========================
+   SUPABASE (TUOI DATI)
+========================= */
+const SUPABASE_URL = "https://ldisjlsnshxgasopupvn.supabase.co";
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkaXNqbHNuc2h4Z2Fzb3B1cHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MTI5NjMsImV4cCI6MjA4NDA4ODk2M30.n4zUsaL_VNA4pHMpxWa7hvUxrIrb17BIxJ03DXvzHOk";
 
-  <!-- Supabase JS (necessario per app.js) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+let supabase = null;
+let supabaseEnabled = false;
 
-  <style>
-    :root{
-      --bg:#0b1220; --panel:#121b2e; --panel2:#0f172a; --text:#e5e7eb; --muted:#9ca3af;
-      --line:#22304b; --bad:#ef4444; --btn:#1f2a44; --btn2:#233152;
-      --ok:#22c55e;
+function initSupabase() {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabaseEnabled = true;
+  } else {
+    supabase = null;
+    supabaseEnabled = false;
+  }
+  updateSyncBadge();
+}
+
+/* =========================
+   STORAGE (fallback locale)
+========================= */
+const LS_KEYS = {
+  inventory: "gp3d_inventory_v1",
+  orders: "gp3d_orders_v1",
+  settings: "gp3d_settings_v1",
+};
+
+const ORDER_CLEANUP_HOURS = 24;
+
+function nowISO() { return new Date().toISOString(); }
+function fmtMoney(n){ return (Number(n || 0)).toFixed(2); }
+function toDateInputValue(d){
+  const dt = new Date(d);
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth()+1).padStart(2,"0");
+  const dd = String(dt.getDate()).padStart(2,"0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function sameDay(a, b){
+  const da = new Date(a), db = new Date(b);
+  return da.getFullYear()===db.getFullYear() && da.getMonth()===db.getMonth() && da.getDate()===db.getDate();
+}
+function monthKey(d){
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
+}
+
+async function lsGet(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  }catch{
+    return fallback;
+  }
+}
+async function lsSet(key, value){
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+/* =========================
+   TOAST
+========================= */
+const toastEl = document.getElementById("toast");
+const toastMsgEl = document.getElementById("toastMsg");
+const toastCloseEl = document.getElementById("toastClose");
+if (toastCloseEl) toastCloseEl.addEventListener("click", () => hideToast());
+
+let toastTimer = null;
+function showToast(msg){
+  if (!toastEl || !toastMsgEl) return;
+  toastMsgEl.textContent = msg;
+  toastEl.classList.remove("hidden");
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => hideToast(), 2500);
+}
+function hideToast(){
+  if (!toastEl) return;
+  toastEl.classList.add("hidden");
+}
+
+/* =========================
+   BADGE
+========================= */
+function updateSyncBadge(){
+  const badge = document.getElementById("syncBadge");
+  if(!badge) return;
+  badge.innerHTML = supabaseEnabled ? `Storage: <strong>Supabase</strong>` : `Storage: <strong>Local</strong>`;
+}
+
+/* =========================
+   HELPERS
+========================= */
+function escapeHtml(str){
+  return String(str)
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+
+/* =========================
+   DB LAYER - INVENTORY
+========================= */
+async function dbInventoryList(){
+  if(!supabaseEnabled) return await lsGet(LS_KEYS.inventory, []);
+  const { data, error } = await supabase.from("inventory").select("*").order("code", { ascending:true });
+  if(error){ showToast("Errore Supabase inventory"); return []; }
+  return (data || []).map(r => ({ id:r.id, code:r.code, qty:r.qty, updated_at:r.updated_at }));
+}
+
+async function dbInventoryUpsert(code, qty){
+  if(!supabaseEnabled){
+    const inv = await lsGet(LS_KEYS.inventory, []);
+    const idx = inv.findIndex(x => x.code.toLowerCase() === code.toLowerCase());
+    const item = { id: idx>=0 ? inv[idx].id : crypto.randomUUID(), code, qty:Number(qty), updated_at: nowISO() };
+    if(idx>=0) inv[idx] = item; else inv.push(item);
+    await lsSet(LS_KEYS.inventory, inv);
+    return item;
+  }
+  const payload = { code, qty: Number(qty), updated_at: nowISO() };
+  const { data, error } = await supabase
+    .from("inventory")
+    .upsert(payload, { onConflict: "code" })
+    .select("*")
+    .single();
+  if(error){ showToast("Errore salvataggio Supabase"); return null; }
+  return data;
+}
+
+async function dbInventoryDeleteById(id){
+  if(!supabaseEnabled){
+    const inv = await lsGet(LS_KEYS.inventory, []);
+    await lsSet(LS_KEYS.inventory, inv.filter(x => x.id !== id));
+    return true;
+  }
+  const { error } = await supabase.from("inventory").delete().eq("id", id);
+  if(error){ showToast("Errore eliminazione Supabase"); return false; }
+  return true;
+}
+
+/* =========================
+   DB LAYER - ORDERS
+========================= */
+async function dbOrdersList(){
+  if(!supabaseEnabled) return await lsGet(LS_KEYS.orders, []);
+  const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending:false });
+  if(error){ showToast("Errore Supabase orders"); return []; }
+  return (data || []).map(o => ({
+    id:o.id,
+    created_at:o.created_at,
+    channel:o.channel,
+    total:o.total,
+    status:o.status,
+    status_changed_at:o.status_changed_at,
+    lines:o.lines || [],
+  }));
+}
+
+async function dbOrderInsert(order){
+  if(!supabaseEnabled){
+    const orders = await lsGet(LS_KEYS.orders, []);
+    const item = { ...order, id: crypto.randomUUID() };
+    orders.unshift(item);
+    await lsSet(LS_KEYS.orders, orders);
+    return item;
+  }
+  const { data, error } = await supabase.from("orders").insert(order).select("*").single();
+  if(error){ showToast("Errore inserimento ordine Supabase"); return null; }
+  return data;
+}
+
+async function dbOrderUpdateStatus(id, status){
+  const status_changed_at = nowISO();
+  if(!supabaseEnabled){
+    const orders = await lsGet(LS_KEYS.orders, []);
+    const idx = orders.findIndex(o => o.id === id);
+    if(idx<0) return false;
+    orders[idx].status = status;
+    orders[idx].status_changed_at = status_changed_at;
+    await lsSet(LS_KEYS.orders, orders);
+    return true;
+  }
+  const { error } = await supabase.from("orders").update({ status, status_changed_at }).eq("id", id);
+  if(error){ showToast("Errore update status Supabase"); return false; }
+  return true;
+}
+
+/* =========================
+   SETTINGS (solo locale)
+========================= */
+async function settingsGet(){
+  return await lsGet(LS_KEYS.settings, { deletePass: "1234" });
+}
+async function settingsSet(s){
+  await lsSet(LS_KEYS.settings, s);
+}
+
+/* =========================
+   TABS
+========================= */
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const t = btn.dataset.tab;
+    document.querySelectorAll("main section").forEach(sec => sec.classList.add("hidden"));
+    document.getElementById(`tab-${t}`).classList.remove("hidden");
+  });
+});
+
+/* =========================
+   MAGAZZINO UI
+========================= */
+const invTbody = document.getElementById("invTbody");
+const invSearch = document.getElementById("invSearch");
+let invSelectedId = null;
+
+function invRowTemplate(item){
+  const tr = document.createElement("tr");
+  if(Number(item.qty) === 0) tr.classList.add("rowZero");
+  const updated = item.updated_at ? new Date(item.updated_at).toLocaleString() : "-";
+  tr.innerHTML = `
+    <td class="center"><input type="radio" name="invSel"></td>
+    <td>${escapeHtml(item.code)}</td>
+    <td class="right">${Number(item.qty)}</td>
+    <td>${updated}</td>
+  `;
+  tr.querySelector('input[type="radio"]').addEventListener("change", () => {
+    invSelectedId = item.id;
+  });
+  return tr;
+}
+
+async function renderInventory(){
+  const list = await dbInventoryList();
+  const q = (invSearch?.value || "").trim().toLowerCase();
+  const filtered = q ? list.filter(x => (x.code||"").toLowerCase().includes(q)) : list;
+
+  invTbody.innerHTML = "";
+  invSelectedId = null;
+  filtered.forEach(item => invTbody.appendChild(invRowTemplate(item)));
+}
+
+document.getElementById("btnInvRefresh").addEventListener("click", renderInventory);
+invSearch.addEventListener("input", renderInventory);
+
+document.getElementById("btnInvSave").addEventListener("click", async () => {
+  const code = (document.getElementById("invCode").value || "").trim();
+  const qty = Number(document.getElementById("invQty").value);
+
+  if(!code){ showToast("Inserisci un codice"); return; }
+  if(!Number.isFinite(qty) || qty < 0){ showToast("Quantità non valida"); return; }
+
+  await dbInventoryUpsert(code, qty);
+  document.getElementById("invCode").value = "";
+  document.getElementById("invQty").value = "1";
+  await renderInventory();
+  showToast("Salvato");
+});
+
+document.getElementById("btnInvDeleteSelected").addEventListener("click", async () => {
+  if(!invSelectedId){ showToast("Seleziona una riga"); return; }
+  const s = await settingsGet();
+  const pass = prompt("Password eliminazione:");
+  if(pass === null) return;
+  if(pass !== s.deletePass){ showToast("Password errata"); return; }
+
+  const ok = await dbInventoryDeleteById(invSelectedId);
+  if(ok){
+    await renderInventory();
+    showToast("Eliminato");
+  }
+});
+
+document.getElementById("btnInvExport").addEventListener("click", async () => {
+  const list = await dbInventoryList();
+  const blob = new Blob([JSON.stringify(list, null, 2)], { type:"application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "magazzino.json";
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+/* =========================
+   ORDINI UI
+========================= */
+const orderLinesTbody = document.getElementById("orderLinesTbody");
+const ordersTbody = document.getElementById("ordersTbody");
+
+function addOrderLine(code="", qty=1){
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><input class="ol-code" placeholder="CODICE" autocomplete="off" value="${escapeHtml(code)}"></td>
+    <td class="right"><input class="ol-qty" type="number" min="1" step="1" value="${Number(qty)}"></td>
+    <td class="center"><button class="btn danger ol-del" type="button">X</button></td>
+  `;
+  tr.querySelector(".ol-del").addEventListener("click", () => tr.remove());
+  orderLinesTbody.appendChild(tr);
+  return tr;
+}
+
+function getOrderLines(){
+  const rows = [...orderLinesTbody.querySelectorAll("tr")];
+  const lines = [];
+  for(const r of rows){
+    const code = (r.querySelector(".ol-code").value || "").trim();
+    const qty = Number(r.querySelector(".ol-qty").value);
+    if(!code) continue;
+    if(!Number.isFinite(qty) || qty <= 0) continue;
+    lines.push({ code, qty });
+  }
+  return lines;
+}
+
+function setupOrderKeyboard(){
+  orderLinesTbody.addEventListener("keydown", (e) => {
+    const tr = e.target.closest("tr");
+    if(!tr) return;
+
+    const rows = [...orderLinesTbody.querySelectorAll("tr")];
+    const idx = rows.indexOf(tr);
+
+    if(e.key === "Enter" && !e.ctrlKey){
+      e.preventDefault();
+      const newRow = addOrderLine("", 1);
+      newRow.querySelector(".ol-code").focus();
+      return;
     }
-    *{box-sizing:border-box; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
-    body{margin:0; background:linear-gradient(180deg,var(--bg),#070b14); color:var(--text);}
-    header{padding:16px 18px; border-bottom:1px solid var(--line); background:rgba(18,27,46,.75); position:sticky; top:0; z-index:10; backdrop-filter: blur(10px);}
-    .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
-    h1{margin:0; font-size:16px;}
-    .badge{font-size:12px; padding:6px 10px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:rgba(15,23,42,.6);}
-    .badge strong{color:var(--text);}
-    .tabs{display:flex; gap:8px; padding-top:10px; flex-wrap:wrap;}
-    .tab{border:1px solid var(--line); background:var(--btn); color:var(--text); padding:8px 12px; border-radius:10px; cursor:pointer; user-select:none;}
-    .tab.active{background:var(--btn2); outline:2px solid rgba(96,165,250,.25);}
-    main{max-width:1100px; margin:18px auto; padding:0 18px 30px;}
-    .panel{background:rgba(18,27,46,.75); border:1px solid var(--line); border-radius:16px; padding:14px; box-shadow:0 20px 50px rgba(0,0,0,.25);}
-    .grid{display:grid; gap:12px;}
-    .grid.two{grid-template-columns:1fr 1fr;}
-    @media (max-width:900px){.grid.two{grid-template-columns:1fr;}}
-    label{font-size:12px; color:var(--muted);}
-    input, select{
-      background:var(--panel2); border:1px solid var(--line); border-radius:10px;
-      padding:10px 10px; color:var(--text); outline:none; width:100%;
+
+    if(e.key === "Enter" && e.ctrlKey){
+      e.preventDefault();
+      document.getElementById("btnSaveOrder").click();
+      return;
     }
-    .btn{background:var(--btn); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:12px; cursor:pointer; user-select:none; font-weight:700;}
-    .btn:hover{filter:brightness(1.1);}
-    .btn.primary{background:#1d3b66; border-color:#274c82;}
-    .btn.danger{background:#3a1520; border-color:#6b1f2c;}
-    .btn.ok{background:#14301e; border-color:#1f5a34;}
-    .btn.ghost{background:transparent;}
-    .muted{color:var(--muted); font-size:12px;}
-    .hr{height:1px; background:var(--line); margin:12px 0;}
-    table{width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:12px; border:1px solid var(--line);}
-    th, td{padding:10px 10px; border-bottom:1px solid var(--line); font-size:13px;}
-    th{background:rgba(15,23,42,.8); text-align:left; color:var(--muted); font-weight:800;}
-    tr:last-child td{border-bottom:none;}
-    .right{text-align:right;}
-    .center{text-align:center;}
-    .hidden{display:none !important;}
-    .rowZero{background: rgba(239,68,68,.14) !important;}
-    .rowZero td{border-bottom-color:rgba(239,68,68,.25);}
-    .pill{padding:4px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; display:inline-block; color:var(--muted);}
-    .pill.open{border-color:rgba(96,165,250,.35); background:rgba(96,165,250,.10);}
-    .pill.done{border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.10); color:#bfe8c9;}
-    .pill.cancel{border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.10); color:#f7c2c2;}
-    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-      font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:rgba(2,6,23,.35);
+
+    if(e.key === "ArrowUp"){
+      e.preventDefault();
+      const prev = rows[Math.max(0, idx-1)];
+      if(prev) prev.querySelector(".ol-code").focus();
+      return;
     }
-    .toast{
-      position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
-      background:rgba(15,23,42,.95); border:1px solid var(--line); border-radius:14px;
-      padding:10px 12px; color:var(--text); min-width:280px; max-width:680px;
-      box-shadow:0 15px 45px rgba(0,0,0,.35); z-index:999;
+    if(e.key === "ArrowDown"){
+      e.preventDefault();
+      const next = rows[Math.min(rows.length-1, idx+1)];
+      if(next) next.querySelector(".ol-code").focus();
+      return;
     }
-    .toast .trow{display:flex; align-items:center; justify-content:space-between; gap:12px;}
-    .toast .msg{font-size:13px;}
-    .toast .x{cursor:pointer; color:var(--muted); font-weight:900; padding:2px 8px;}
-  </style>
-</head>
+  });
+}
 
-<body>
-<header>
-  <div class="row" style="justify-content:space-between;">
-    <h1>Gestionale 3D</h1>
-    <div class="row">
-      <span id="syncBadge" class="badge">Storage: <strong>Local</strong></span>
-      <button class="btn ghost" id="btnReload" type="button">Ricarica</button>
-    </div>
-  </div>
+document.getElementById("btnAddLine").addEventListener("click", () => {
+  const tr = addOrderLine("", 1);
+  tr.querySelector(".ol-code").focus();
+});
 
-  <div class="tabs">
-    <button class="tab active" data-tab="magazzino" type="button">Magazzino</button>
-    <button class="tab" data-tab="ordini" type="button">Ordini (veloce)</button>
-    <button class="tab" data-tab="incassi" type="button">Report incassi</button>
-    <button class="tab" data-tab="impostazioni" type="button">Impostazioni</button>
-  </div>
-</header>
+document.getElementById("btnClearOrder").addEventListener("click", () => {
+  document.getElementById("ordTotal").value = "";
+  orderLinesTbody.innerHTML = "";
+  addOrderLine("", 1).querySelector(".ol-code").focus();
+});
 
-<main>
-  <!-- MAGAZZINO -->
-  <section id="tab-magazzino" class="panel">
-    <div class="row" style="justify-content:space-between;">
-      <div>
-        <div style="font-weight:900;">Magazzino</div>
-        <div class="muted">Quantità = 0 → riga intera rossa. Eliminazione con password.</div>
-      </div>
-      <div class="row">
-        <input id="invSearch" placeholder="Cerca codice..." style="width:220px;">
-        <button class="btn" id="btnInvRefresh" type="button">Aggiorna</button>
-      </div>
-    </div>
+document.getElementById("btnSaveOrder").addEventListener("click", async () => {
+  const channel = document.getElementById("ordChannel").value;
+  const total = Number(document.getElementById("ordTotal").value || 0);
+  const lines = getOrderLines();
 
-    <div class="hr"></div>
+  if(lines.length === 0){ showToast("Inserisci almeno 1 riga con codice"); return; }
+  if(!Number.isFinite(total) || total < 0){ showToast("Incasso non valido"); return; }
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div class="row" style="align-items:flex-end;">
-          <div style="flex:1;">
-            <label>Codice prodotto</label>
-            <input id="invCode" placeholder="ES: LAMP-RED-BULL-01" autocomplete="off">
-          </div>
-          <div style="width:160px;">
-            <label>Quantità</label>
-            <input id="invQty" type="number" min="0" step="1" value="1">
-          </div>
-          <button class="btn primary" id="btnInvSave" style="width:160px;" type="button">Salva</button>
-        </div>
-        <div class="muted" style="margin-top:8px;">Se il codice esiste, aggiorna la quantità.</div>
-      </div>
+  const order = {
+    created_at: nowISO(),
+    channel,
+    total: Number(total),
+    status: "open",
+    status_changed_at: null,
+    lines,
+  };
 
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Azioni</div>
-        <div class="muted">Seleziona una riga e poi elimina.</div>
-        <div class="hr"></div>
-        <div class="row">
-          <button class="btn danger" id="btnInvDeleteSelected" type="button">Elimina selezionato</button>
-          <button class="btn" id="btnInvExport" type="button">Esporta JSON</button>
-        </div>
-      </div>
-    </div>
+  const saved = await dbOrderInsert(order);
+  if(!saved) return;
 
-    <div class="hr"></div>
+  // scala magazzino SOLO se il codice esiste già
+  const inv = await dbInventoryList();
+  for(const l of lines){
+    const found = inv.find(x => x.code.toLowerCase() === l.code.toLowerCase());
+    if(found){
+      const newQty = Math.max(0, Number(found.qty) - Number(l.qty));
+      await dbInventoryUpsert(found.code, newQty);
+    }
+  }
 
-    <table>
-      <thead>
-        <tr>
-          <th class="center" style="width:56px;">Sel</th>
-          <th>Codice</th>
-          <th class="right" style="width:140px;">Quantità</th>
-          <th style="width:200px;">Aggiornato</th>
-        </tr>
-      </thead>
-      <tbody id="invTbody"></tbody>
-    </table>
-  </section>
+  document.getElementById("btnClearOrder").click();
+  await refreshOrders();
+  await renderInventory();
+  showToast("Ordine salvato");
+});
 
-  <!-- ORDINI -->
-  <section id="tab-ordini" class="panel hidden">
-    <div class="row" style="justify-content:space-between;">
-      <div>
-        <div style="font-weight:900;">Ordini (veloce)</div>
-        <div class="muted">
-          <span class="kbd">↑</span><span class="kbd">↓</span> spostamento righe,
-          <span class="kbd">Enter</span> nuova riga,
-          <span class="kbd">Ctrl</span>+<span class="kbd">Enter</span> salva ordine.
-        </div>
-      </div>
-      <div class="row">
-        <button class="btn" id="btnOrdersRefresh" type="button">Aggiorna</button>
-      </div>
-    </div>
+document.getElementById("btnOrdersRefresh").addEventListener("click", refreshOrders);
+document.getElementById("ordersFilter").addEventListener("change", refreshOrders);
 
-    <div class="hr"></div>
+function statusPill(status){
+  if(status === "done") return `<span class="pill done">Completato</span>`;
+  if(status === "cancelled") return `<span class="pill cancel">Annullato</span>`;
+  return `<span class="pill open">Aperto</span>`;
+}
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div class="row">
-          <div style="flex:1;">
-            <label>Canale</label>
-            <select id="ordChannel">
-              <option value="Catawiki">Catawiki</option>
-              <option value="eBay-1">eBay-1</option>
-              <option value="eBay-2">eBay-2</option>
-              <option value="Vinted-1">Vinted-1</option>
-              <option value="Vinted-2">Vinted-2</option>
-              <option value="Etsy-1">Etsy-1</option>
-              <option value="Etsy-2">Etsy-2</option>
-              <option value="Wallapop-1">Wallapop-1</option>
-              <option value="Wallapop-2">Wallapop-2</option>
-              <option value="Altro">Altro</option>
-            </select>
-          </div>
-          <div style="width:180px;">
-            <label>Incasso (€)</label>
-            <input id="ordTotal" type="number" min="0" step="0.01" placeholder="0.00">
-          </div>
-        </div>
+async function cleanupOrders(orders){
+  // su Supabase non cancello niente automaticamente (eviti sorprese)
+  if(supabaseEnabled) return orders;
 
-        <div class="hr"></div>
+  const limitMs = ORDER_CLEANUP_HOURS * 60 * 60 * 1000;
+  const now = Date.now();
 
-        <div style="font-weight:900; margin-bottom:8px;">Righe ordine</div>
+  const cleaned = orders.filter(o => {
+    if(o.status !== "done") return true;
+    if(!o.status_changed_at) return true;
+    return (now - new Date(o.status_changed_at).getTime()) < limitMs;
+  });
 
-        <table>
-          <thead>
-            <tr>
-              <th>Codice</th>
-              <th class="right" style="width:120px;">Q.tà</th>
-              <th class="center" style="width:72px;">X</th>
-            </tr>
-          </thead>
-          <tbody id="orderLinesTbody"></tbody>
-        </table>
+  if(cleaned.length !== orders.length){
+    await lsSet(LS_KEYS.orders, cleaned);
+  }
+  return cleaned;
+}
 
-        <div class="row" style="margin-top:10px;">
-          <button class="btn" id="btnAddLine" type="button">+ Riga</button>
-          <button class="btn primary" id="btnSaveOrder" type="button">Salva</button>
-          <button class="btn" id="btnClearOrder" type="button">Pulisci</button>
-        </div>
+async function refreshOrders(){
+  let orders = await dbOrdersList();
+  orders = await cleanupOrders(orders);
 
-        <div class="muted" style="margin-top:8px;">
-          Gli ordini completati vengono nascosti automaticamente dopo 24 ore (in locale).
-        </div>
-      </div>
+  const filter = document.getElementById("ordersFilter").value;
+  let view = orders;
 
-      <div class="panel" style="padding:12px;">
-        <div class="row" style="justify-content:space-between;">
-          <div>
-            <div style="font-weight:900;">Lista ordini</div>
-            <div class="muted">Completa / annulla.</div>
-          </div>
-          <select id="ordersFilter" style="width:170px;">
-            <option value="open">Aperti</option>
-            <option value="all">Tutti</option>
-            <option value="done">Completati</option>
-            <option value="cancelled">Annullati</option>
-          </select>
-        </div>
+  if(filter !== "all"){
+    view = orders.filter(o => o.status === filter);
+  }
 
-        <div class="hr"></div>
+  ordersTbody.innerHTML = "";
+  view.forEach(o => {
+    const tr = document.createElement("tr");
+    const dt = new Date(o.created_at).toLocaleString();
+    tr.innerHTML = `
+      <td>${dt}</td>
+      <td>${escapeHtml(o.channel)}</td>
+      <td class="right">${fmtMoney(o.total)}</td>
+      <td>${statusPill(o.status)}</td>
+      <td class="center">
+        <button class="btn ok okBtn" type="button">✓</button>
+        <button class="btn danger cancelBtn" type="button">X</button>
+      </td>
+    `;
+    tr.querySelector(".okBtn").addEventListener("click", async () => {
+      await dbOrderUpdateStatus(o.id, "done");
+      await refreshOrders();
+      showToast("Ordine completato");
+    });
+    tr.querySelector(".cancelBtn").addEventListener("click", async () => {
+      await dbOrderUpdateStatus(o.id, "cancelled");
+      await refreshOrders();
+      showToast("Ordine annullato");
+    });
+    ordersTbody.appendChild(tr);
+  });
+}
 
-        <table>
-          <thead>
-            <tr>
-              <th style="width:180px;">Data</th>
-              <th>Canale</th>
-              <th class="right" style="width:120px;">Incasso</th>
-              <th style="width:120px;">Stato</th>
-              <th class="center" style="width:150px;">Azioni</th>
-            </tr>
-          </thead>
-          <tbody id="ordersTbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
+/* =========================
+   REPORT
+========================= */
+document.getElementById("repMode").addEventListener("change", () => {
+  const mode = document.getElementById("repMode").value;
+  const day = document.getElementById("repDay");
+  day.classList.toggle("hidden", mode !== "daypick");
+});
 
-  <!-- INCASSI -->
-  <section id="tab-incassi" class="panel hidden">
-    <div class="row" style="justify-content:space-between;">
-      <div>
-        <div style="font-weight:900;">Report incassi</div>
-        <div class="muted">Giornaliero / Mensile / Giorno specifico (solo ordini “Completato”).</div>
-      </div>
-      <div class="row">
-        <select id="repMode" style="width:170px;">
-          <option value="daily">Giornaliero</option>
-          <option value="monthly">Mensile</option>
-          <option value="daypick">Seleziona giorno</option>
-        </select>
-        <input id="repDay" type="date" class="hidden" style="width:170px;">
-        <button class="btn primary" id="btnRepRun" type="button">Calcola</button>
-      </div>
-    </div>
+document.getElementById("btnRepRun").addEventListener("click", runReport);
 
-    <div class="hr"></div>
+async function runReport(){
+  const mode = document.getElementById("repMode").value;
+  const repDay = document.getElementById("repDay").value;
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Totali</div>
-        <div class="hr"></div>
-        <div class="row" style="justify-content:space-between;">
-          <div class="muted">Totale incassi (€)</div>
-          <div style="font-weight:900; font-size:20px;" id="repTotal">0.00</div>
-        </div>
-        <div class="row" style="justify-content:space-between; margin-top:10px;">
-          <div class="muted">Ordini completati</div>
-          <div style="font-weight:900;" id="repCount">0</div>
-        </div>
-      </div>
+  const orders = (await dbOrdersList()).filter(o => o.status === "done");
 
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Per canale</div>
-        <div class="hr"></div>
-        <table>
-          <thead>
-            <tr>
-              <th>Canale</th>
-              <th class="right">Incassi</th>
-              <th class="right" style="width:120px;">Ordini</th>
-            </tr>
-          </thead>
-          <tbody id="repByChannel"></tbody>
-        </table>
-      </div>
-    </div>
+  let filtered = orders;
 
-    <div class="hr"></div>
+  if(mode === "daily"){
+    const today = new Date();
+    filtered = orders.filter(o => sameDay(o.created_at, today));
+  } else if(mode === "monthly"){
+    const mk = monthKey(new Date());
+    filtered = orders.filter(o => monthKey(o.created_at) === mk);
+  } else if(mode === "daypick"){
+    if(!repDay){ showToast("Seleziona un giorno"); return; }
+    const pick = new Date(repDay + "T00:00:00");
+    filtered = orders.filter(o => sameDay(o.created_at, pick));
+  }
 
-    <div class="panel" style="padding:12px;">
-      <div style="font-weight:900;">Dettaglio ordini inclusi</div>
-      <div class="muted">Solo ordini “Completato”.</div>
-      <div class="hr"></div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:180px;">Data</th>
-            <th>Canale</th>
-            <th class="right" style="width:120px;">Incasso</th>
-          </tr>
-        </thead>
-        <tbody id="repOrders"></tbody>
-      </table>
-    </div>
-  </section>
+  const total = filtered.reduce((s, o) => s + Number(o.total || 0), 0);
+  document.getElementById("repTotal").textContent = fmtMoney(total);
+  document.getElementById("repCount").textContent = String(filtered.length);
 
-  <!-- IMPOSTAZIONI -->
-  <section id="tab-impostazioni" class="panel hidden">
-    <div style="font-weight:900;">Impostazioni</div>
-    <div class="muted">Password eliminazione magazzino + test connessione Supabase.</div>
+  const map = new Map();
+  for(const o of filtered){
+    const key = o.channel || "Sconosciuto";
+    const prev = map.get(key) || { sum:0, count:0 };
+    prev.sum += Number(o.total || 0);
+    prev.count += 1;
+    map.set(key, prev);
+  }
 
-    <div class="hr"></div>
+  const repByChannel = document.getElementById("repByChannel");
+  repByChannel.innerHTML = "";
+  [...map.entries()].sort((a,b) => b[1].sum - a[1].sum).forEach(([ch, v]) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(ch)}</td><td class="right">${fmtMoney(v.sum)}</td><td class="right">${v.count}</td>`;
+    repByChannel.appendChild(tr);
+  });
 
-    <div class="grid two">
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Password eliminazione magazzino</div>
-        <div class="muted">Se non imposti nulla, password default: <b>1234</b></div>
-        <div class="hr"></div>
+  const repOrders = document.getElementById("repOrders");
+  repOrders.innerHTML = "";
+  filtered
+    .slice()
+    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+    .forEach(o => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${new Date(o.created_at).toLocaleString()}</td><td>${escapeHtml(o.channel)}</td><td class="right">${fmtMoney(o.total)}</td>`;
+      repOrders.appendChild(tr);
+    });
 
-        <label>Nuova password</label>
-        <input id="setDeletePass" type="password" placeholder="Imposta password...">
+  showToast("Report aggiornato");
+}
 
-        <div class="row" style="margin-top:10px;">
-          <button class="btn primary" id="btnSavePass" type="button">Salva password</button>
-          <button class="btn" id="btnResetPass" type="button">Reset a 1234</button>
-        </div>
-      </div>
+/* =========================
+   IMPOSTAZIONI
+========================= */
+document.getElementById("btnSavePass").addEventListener("click", async () => {
+  const pass = document.getElementById("setDeletePass").value;
+  if(!pass || pass.length < 2){ showToast("Password troppo corta"); return; }
+  const s = await settingsGet();
+  s.deletePass = pass;
+  await settingsSet(s);
+  document.getElementById("setDeletePass").value = "";
+  showToast("Password salvata");
+});
 
-      <div class="panel" style="padding:12px;">
-        <div style="font-weight:900;">Supabase</div>
-        <div class="muted">Controlla se l’app è collegata al database.</div>
-        <div class="hr"></div>
-        <button class="btn" id="btnTestSupabase" type="button">Test connessione</button>
-        <div class="muted" style="margin-top:10px;">
-          Se il badge in alto dice <b>Supabase</b>, sei online.
-        </div>
-      </div>
-    </div>
-  </section>
-</main>
+document.getElementById("btnResetPass").addEventListener("click", async () => {
+  await settingsSet({ deletePass: "1234" });
+  showToast("Password resettata a 1234");
+});
 
-<div id="toast" class="toast hidden">
-  <div class="trow">
-    <div id="toastMsg" class="msg"></div>
-    <div id="toastClose" class="x">×</div>
-  </div>
-</div>
+document.getElementById("btnTestSupabase").addEventListener("click", async () => {
+  if(!supabaseEnabled){ showToast("Supabase NON configurato"); return; }
+  const { error } = await supabase.from("inventory").select("id").limit(1);
+  if(error){ showToast("Connessione OK ma tabella/policy manca"); return; }
+  showToast("Connessione Supabase OK ✅");
+});
 
-<script src="./app.js"></script>
-</body>
-</html>
+/* =========================
+   RICARICA
+========================= */
+document.getElementById("btnReload").addEventListener("click", async () => {
+  await refreshAll();
+  showToast("Ricaricato");
+});
+
+/* =========================
+   AVVIO
+========================= */
+async function refreshAll(){
+  await renderInventory();
+  await refreshOrders();
+  document.getElementById("repDay").value = toDateInputValue(new Date());
+}
+
+(function boot(){
+  initSupabase();
+
+  // setup righe ordine
+  orderLinesTbody.innerHTML = "";
+  addOrderLine("", 1);
+  setupOrderKeyboard();
+
+  // default date picker
+  document.getElementById("repDay").value = toDateInputValue(new Date());
+
+  refreshAll();
+})();
