@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Gestionale 3D - Magazzino & Ordini</title>
 
-  <!-- Supabase JS (UMD) -->
+  <!-- Supabase JS (necessario per app.js) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
     :root{
       --bg:#0b1220; --panel:#121b2e; --panel2:#0f172a; --text:#e5e7eb; --muted:#9ca3af;
-      --line:#22304b; --bad:#ef4444; --btn:#1f2a44; --btn2:#233152; --focus:#60a5fa;
+      --line:#22304b; --bad:#ef4444; --btn:#1f2a44; --btn2:#233152;
+      --ok:#22c55e;
     }
     *{box-sizing:border-box; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
     body{margin:0; background:linear-gradient(180deg,var(--bg),#070b14); color:var(--text);}
@@ -33,11 +34,11 @@
       background:var(--panel2); border:1px solid var(--line); border-radius:10px;
       padding:10px 10px; color:var(--text); outline:none; width:100%;
     }
-    input:focus, select:focus{border-color:rgba(96,165,250,.7); box-shadow:0 0 0 3px rgba(96,165,250,.15);}
     .btn{background:var(--btn); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:12px; cursor:pointer; user-select:none; font-weight:700;}
     .btn:hover{filter:brightness(1.1);}
     .btn.primary{background:#1d3b66; border-color:#274c82;}
     .btn.danger{background:#3a1520; border-color:#6b1f2c;}
+    .btn.ok{background:#14301e; border-color:#1f5a34;}
     .btn.ghost{background:transparent;}
     .muted{color:var(--muted); font-size:12px;}
     .hr{height:1px; background:var(--line); margin:12px 0;}
@@ -54,7 +55,7 @@
     .pill.open{border-color:rgba(96,165,250,.35); background:rgba(96,165,250,.10);}
     .pill.done{border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.10); color:#bfe8c9;}
     .pill.cancel{border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.10); color:#f7c2c2;}
-    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
       font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:rgba(2,6,23,.35);
     }
     .toast{
@@ -66,7 +67,6 @@
     .toast .trow{display:flex; align-items:center; justify-content:space-between; gap:12px;}
     .toast .msg{font-size:13px;}
     .toast .x{cursor:pointer; color:var(--muted); font-weight:900; padding:2px 8px;}
-    .small{font-size:12px;}
   </style>
 </head>
 
@@ -76,14 +76,15 @@
     <h1>Gestionale 3D</h1>
     <div class="row">
       <span id="syncBadge" class="badge">Storage: <strong>Local</strong></span>
-      <button class="btn ghost" id="btnReload">Ricarica</button>
+      <button class="btn ghost" id="btnReload" type="button">Ricarica</button>
     </div>
   </div>
+
   <div class="tabs">
-    <button class="tab active" data-tab="magazzino">Magazzino</button>
-    <button class="tab" data-tab="ordini">Ordini (veloce)</button>
-    <button class="tab" data-tab="incassi">Report incassi</button>
-    <button class="tab" data-tab="impostazioni">Impostazioni</button>
+    <button class="tab active" data-tab="magazzino" type="button">Magazzino</button>
+    <button class="tab" data-tab="ordini" type="button">Ordini (veloce)</button>
+    <button class="tab" data-tab="incassi" type="button">Report incassi</button>
+    <button class="tab" data-tab="impostazioni" type="button">Impostazioni</button>
   </div>
 </header>
 
@@ -97,7 +98,7 @@
       </div>
       <div class="row">
         <input id="invSearch" placeholder="Cerca codice..." style="width:220px;">
-        <button class="btn" id="btnInvRefresh">Aggiorna</button>
+        <button class="btn" id="btnInvRefresh" type="button">Aggiorna</button>
       </div>
     </div>
 
@@ -114,7 +115,7 @@
             <label>Quantità</label>
             <input id="invQty" type="number" min="0" step="1" value="1">
           </div>
-          <button class="btn primary" id="btnInvSave" style="width:160px;">Salva</button>
+          <button class="btn primary" id="btnInvSave" style="width:160px;" type="button">Salva</button>
         </div>
         <div class="muted" style="margin-top:8px;">Se il codice esiste, aggiorna la quantità.</div>
       </div>
@@ -124,8 +125,8 @@
         <div class="muted">Seleziona una riga e poi elimina.</div>
         <div class="hr"></div>
         <div class="row">
-          <button class="btn danger" id="btnInvDeleteSelected">Elimina selezionato</button>
-          <button class="btn" id="btnInvExport">Esporta JSON</button>
+          <button class="btn danger" id="btnInvDeleteSelected" type="button">Elimina selezionato</button>
+          <button class="btn" id="btnInvExport" type="button">Esporta JSON</button>
         </div>
       </div>
     </div>
@@ -157,7 +158,7 @@
         </div>
       </div>
       <div class="row">
-        <button class="btn" id="btnOrdersRefresh">Aggiorna</button>
+        <button class="btn" id="btnOrdersRefresh" type="button">Aggiorna</button>
       </div>
     </div>
 
@@ -203,13 +204,13 @@
         </table>
 
         <div class="row" style="margin-top:10px;">
-          <button class="btn" id="btnAddLine">+ Riga</button>
-          <button class="btn primary" id="btnSaveOrder">Salva</button>
-          <button class="btn" id="btnClearOrder">Pulisci</button>
+          <button class="btn" id="btnAddLine" type="button">+ Riga</button>
+          <button class="btn primary" id="btnSaveOrder" type="button">Salva</button>
+          <button class="btn" id="btnClearOrder" type="button">Pulisci</button>
         </div>
 
         <div class="muted" style="margin-top:8px;">
-          Gli ordini completati vengono nascosti automaticamente dopo 24 ore.
+          Gli ordini completati vengono nascosti automaticamente dopo 24 ore (in locale).
         </div>
       </div>
 
@@ -250,7 +251,7 @@
     <div class="row" style="justify-content:space-between;">
       <div>
         <div style="font-weight:900;">Report incassi</div>
-        <div class="muted">Giornaliero / Mensile / Giorno specifico.</div>
+        <div class="muted">Giornaliero / Mensile / Giorno specifico (solo ordini “Completato”).</div>
       </div>
       <div class="row">
         <select id="repMode" style="width:170px;">
@@ -259,7 +260,7 @@
           <option value="daypick">Seleziona giorno</option>
         </select>
         <input id="repDay" type="date" class="hidden" style="width:170px;">
-        <button class="btn primary" id="btnRepRun">Calcola</button>
+        <button class="btn primary" id="btnRepRun" type="button">Calcola</button>
       </div>
     </div>
 
@@ -299,7 +300,7 @@
 
     <div class="panel" style="padding:12px;">
       <div style="font-weight:900;">Dettaglio ordini inclusi</div>
-      <div class="muted small">Solo ordini in stato “Completato”.</div>
+      <div class="muted">Solo ordini “Completato”.</div>
       <div class="hr"></div>
       <table>
         <thead>
@@ -317,33 +318,33 @@
   <!-- IMPOSTAZIONI -->
   <section id="tab-impostazioni" class="panel hidden">
     <div style="font-weight:900;">Impostazioni</div>
-    <div class="muted">Password eliminazione + Supabase.</div>
+    <div class="muted">Password eliminazione magazzino + test connessione Supabase.</div>
 
     <div class="hr"></div>
 
     <div class="grid two">
       <div class="panel" style="padding:12px;">
         <div style="font-weight:900;">Password eliminazione magazzino</div>
-        <div class="muted">Serve per eliminare prodotti dal magazzino.</div>
+        <div class="muted">Se non imposti nulla, password default: <b>1234</b></div>
         <div class="hr"></div>
+
         <label>Nuova password</label>
         <input id="setDeletePass" type="password" placeholder="Imposta password...">
+
         <div class="row" style="margin-top:10px;">
-          <button class="btn primary" id="btnSavePass">Salva password</button>
-          <button class="btn" id="btnResetPass">Reset</button>
+          <button class="btn primary" id="btnSavePass" type="button">Salva password</button>
+          <button class="btn" id="btnResetPass" type="button">Reset a 1234</button>
         </div>
-        <div class="muted" style="margin-top:8px;">Se non imposti nulla, la password di default è: <b>1234</b></div>
       </div>
 
       <div class="panel" style="padding:12px;">
         <div style="font-weight:900;">Supabase</div>
-        <div class="muted">Inserisci URL e ANON KEY nell’<b>app.js</b>. Se vuote → LocalStorage.</div>
+        <div class="muted">Controlla se l’app è collegata al database.</div>
         <div class="hr"></div>
-        <div class="muted">
-          Quando Supabase è attivo, i dati sono online e li ritrovi da più PC.
+        <button class="btn" id="btnTestSupabase" type="button">Test connessione</button>
+        <div class="muted" style="margin-top:10px;">
+          Se il badge in alto dice <b>Supabase</b>, sei online.
         </div>
-        <div class="hr"></div>
-        <button class="btn" id="btnTestSupabase">Test connessione</button>
       </div>
     </div>
   </section>
