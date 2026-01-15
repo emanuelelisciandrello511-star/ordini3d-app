@@ -1,28 +1,23 @@
 /* =========================
-   PIANETA 3D LAB - app.js (FULL v6)
-   - Ordini: produzione con 2 stampe (frontale/posteriore) -> assemblaggio -> spedizione -> completato
-   - COMPLETATO: sparisce da operativo dopo 24h (resta nei report)
-   - Report: protetto (0000), giornaliero/mensile + stampa (window.print)
-   - Magazzino: codice + quantità
-       * qty == 0 => rosso
-       * qty > 2  => verde
-       * eliminazione solo con password (0000)
-   - Se articolo in magazzino (qty > 0): in Produzione appare bottone "Ritira in magazzino"
-       -> scala 1 dal magazzino
-       -> manda ordine direttamente in SPEDIZIONE (salta stampa/assemblaggio)
-   - Memoria vendite: ultimi 365 giorni (rolling retention sui completati)
+   PIANETA 3D LAB - app.js (FULL v6.1 FIX)
+   - Ordini + Board produzione
+   - COMPLETATO sparisce dall'operativo dopo 24h
+   - Magazzino: codice + quantita + colori + elimina con password
+   - Se articolo in magazzino (qty>0): bottone "Ritira in magazzino" -> scala 1 -> va in SPEDIZIONE
+   - Report protetti (0000): giornaliero/mensile + stampa
+   - Memoria report: ultimi 365 giorni sui completati
    ========================= */
 
-const ORDERS_KEY = "p3dlab_orders_v6";
-const STOCK_KEY  = "p3dlab_stock_v6";
+const ORDERS_KEY = "p3dlab_orders_v6_1";
+const STOCK_KEY  = "p3dlab_stock_v6_1";
 
 /* ====== PASSWORD ====== */
 const PASS_REPORTS = "0000";
 const PASS_STOCK_DELETE = "0000";
 
 /* ====== RETENTION / TTL ====== */
-const DONE_TTL_MS = 24 * 60 * 60 * 1000;               // 24h visibilità operativo
-const SALES_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;  // 365 giorni report vendite
+const DONE_TTL_MS = 24 * 60 * 60 * 1000;               // 24h visibilita operativo
+const SALES_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;  // 365 giorni report
 
 /* ---------- UTILS ---------- */
 function $(id){ return document.getElementById(id); }
@@ -47,7 +42,6 @@ function monthKey(iso){
 function nowIso(){ return new Date().toISOString(); }
 function nowMs(){ return Date.now(); }
 
-/* ---------- LOAD / SAVE ---------- */
 function loadJSON(key, fallback){
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
   catch { return fallback; }
@@ -58,7 +52,7 @@ function saveJSON(key, val){
 
 /* ---------- DATA ---------- */
 let orders = loadJSON(ORDERS_KEY, []);
-let stock  = loadJSON(STOCK_KEY, {}); // { "PRJ-...": number }
+let stock  = loadJSON(STOCK_KEY, {}); // { "CODICE": qty }
 
 /* ---------- FLOW ---------- */
 const FLOW = {
@@ -78,24 +72,19 @@ const COLS = [
   { id: "COMPLETATO",  title: "🟢 Completato (24h)",   bg: "#dfffe6", border: "#33c26b" },
 ];
 
-/* ---------- HELPERS (orders) ---------- */
+/* ---------- SAVE ---------- */
 function saveOrders(){ saveJSON(ORDERS_KEY, orders); }
 function saveStock(){ saveJSON(STOCK_KEY, stock); }
-
 function touch(o){ o.updatedAt = nowIso(); }
 
 function completedTsMs(o){
   const iso = o.completedAt || o.updatedAt || o.createdAt;
   return iso ? new Date(iso).getTime() : 0;
 }
-
-/* COMPLETATO visibile nell'operativo solo 24h */
 function isCompletedVisibleOperational(o){
   if(o.flow !== FLOW.COMPLETATO) return true;
   return (nowMs() - completedTsMs(o)) <= DONE_TTL_MS;
 }
-
-/* retention: rimuove completati più vecchi di 365 giorni */
 function pruneOldCompleted(){
   const t = nowMs();
   const before = orders.length;
@@ -113,26 +102,23 @@ function hideAllPages(){
     if(el) el.classList.add("hide");
   });
 }
-
 function showNew(){
   hideAllPages();
   $("page-new")?.classList.remove("hide");
   refreshActiveTable();
 }
-
 function showPrep(){
   hideAllPages();
   $("page-prep")?.classList.remove("hide");
   renderBoard();
 }
-
 function showStock(){
   hideAllPages();
   $("page-stock")?.classList.remove("hide");
   refreshStock();
 }
 
-/* Reports protetti */
+/* ---------- REPORTS (protetti) ---------- */
 const REPORTS_UNLOCK_KEY = "p3dlab_reports_unlocked";
 
 function openReports(){
@@ -150,7 +136,6 @@ function openReports(){
   $("page-reports")?.classList.remove("hide");
   refreshReports();
 }
-
 function lockReports(){
   sessionStorage.removeItem(REPORTS_UNLOCK_KEY);
   alert("Report bloccati.");
@@ -158,9 +143,8 @@ function lockReports(){
 }
 
 /* ---------- MAGAZZINO ---------- */
-function normCode(code){
-  return String(code || "").trim();
-}
+function normCode(code){ return String(code || "").trim(); }
+
 function getStockQty(code){
   const k = normCode(code);
   return Number(stock[k] || 0);
@@ -175,6 +159,11 @@ function deleteStockItem(code){
   delete stock[k];
   saveStock();
 }
+function qtyClass(q){
+  if(q === 0) return "qty red";
+  if(q > 2) return "qty green";
+  return "qty";
+}
 
 function addOrUpdateStock(){
   const code = normCode($("stockCode")?.value);
@@ -185,7 +174,7 @@ function addOrUpdateStock(){
     return;
   }
   if(Number.isNaN(qty) || qty < 0){
-    alert("Quantità non valida.");
+    alert("Quantita non valida.");
     return;
   }
 
@@ -195,7 +184,6 @@ function addOrUpdateStock(){
   if($("stockQty")) $("stockQty").value = "";
 
   refreshStock();
-  // aggiorna anche board per mostrare/occondere "Ritira in magazzino"
   renderBoard();
 }
 
@@ -209,12 +197,6 @@ function askDeleteStock(code){
   deleteStockItem(code);
   refreshStock();
   renderBoard();
-}
-
-function qtyClass(q){
-  if(q === 0) return "qty red";
-  if(q > 2) return "qty green";
-  return "qty";
 }
 
 function refreshStock(){
@@ -233,12 +215,13 @@ function refreshStock(){
   }
 
   entries.forEach(item=>{
+    const safeCode = item.code.replace(/'/g, "\\'");
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${item.code}</td>
       <td><span class="${qtyClass(item.qty)}">${item.qty}</span></td>
       <td class="no-print">
-        <button class="small danger" onclick="askDeleteStock('${item.code.replace(/'/g,"\\'")}')">Elimina</button>
+        <button class="small danger" onclick="askDeleteStock('${safeCode}')">Elimina</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -295,7 +278,6 @@ function autoToAssemblaggio(o){
     touch(o);
   }
 }
-
 function setFrontaleOK(id){
   const o = orders.find(x=>x.id===id);
   if(!o) return;
@@ -306,7 +288,6 @@ function setFrontaleOK(id){
   renderBoard();
   refreshActiveTable();
 }
-
 function setPosterioreOK(id){
   const o = orders.find(x=>x.id===id);
   if(!o) return;
@@ -318,12 +299,7 @@ function setPosterioreOK(id){
   refreshActiveTable();
 }
 
-/* Ritira dal magazzino:
-   - solo se qty > 0
-   - scala 1
-   - manda in SPEDIZIONE
-   - segna fromStock=true
-*/
+/* Ritira dal magazzino -> SPEDIZIONE */
 function pickFromStock(orderId){
   const o = orders.find(x=>x.id===orderId);
   if(!o) return;
@@ -332,10 +308,9 @@ function pickFromStock(orderId){
   const q = getStockQty(code);
 
   if(q <= 0){
-    alert("Quantità magazzino = 0. Non puoi ritirare.");
+    alert("Quantita magazzino = 0. Non puoi ritirare.");
     return;
   }
-
   if(!confirm(`Ritira 1 pezzo dal magazzino per ${code}?`)) return;
 
   setStockQty(code, q - 1);
@@ -369,7 +344,6 @@ function goPrev(id){
   refreshActiveTable();
   refreshReports();
 }
-
 function goNext(id){
   const o = orders.find(x=>x.id===id);
   if(!o) return;
@@ -386,7 +360,6 @@ function goNext(id){
   refreshActiveTable();
   refreshReports();
 }
-
 function removeOrder(id){
   if(!confirm("Eliminare questo ordine?")) return;
   orders = orders.filter(x=>x.id!==id);
@@ -396,7 +369,7 @@ function removeOrder(id){
   refreshReports();
 }
 
-/* colonne */
+/* ---------- BOARD FILTER ---------- */
 function inCol(o, colId){
   if(!isCompletedVisibleOperational(o)) return false;
 
@@ -409,21 +382,9 @@ function inCol(o, colId){
   return false;
 }
 
-function statusLabel(o){
-  if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill ok"};
-  if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill info"};
-  if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill info"};
-
-  if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill warn"};
-  if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill warn"};
-  if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill warn"};
-  return {text:"PREPARAZIONE", cls:"pill warn"};
-}
-
 /* ---------- RENDER BOARD ---------- */
 function renderBoard(){
   pruneOldCompleted();
-
   const board = $("board");
   if(!board) return;
 
@@ -446,7 +407,7 @@ function renderBoard(){
       card.style.borderColor = colDef.border;
 
       const completedInfo = (o.flow === FLOW.COMPLETATO)
-        ? `<br><b>Completato:</b> ${fmtDT(o.completedAt)} <span class="muted">(sparisce dall’operativo dopo 24h)</span>`
+        ? `<br><b>Completato:</b> ${fmtDT(o.completedAt)} <span class="muted">(sparisce dopo 24h)</span>`
         : "";
 
       const stockQty = getStockQty(o.articolo);
@@ -470,7 +431,6 @@ function renderBoard(){
       const actions = document.createElement("div");
       actions.className = "actions";
 
-      // Ritira in magazzino (salta stampa)
       if(canPick){
         const b = document.createElement("button");
         b.className = "small ok";
@@ -485,15 +445,13 @@ function renderBoard(){
         b.textContent = "OK Frontale ✔";
         b.onclick = ()=>setFrontaleOK(o.id);
         actions.appendChild(b);
-      }
-      else if(colDef.id === "POSTERIORE"){
+      } else if(colDef.id === "POSTERIORE"){
         const b = document.createElement("button");
         b.className = "small ok";
         b.textContent = "OK Posteriore ✔";
         b.onclick = ()=>setPosterioreOK(o.id);
         actions.appendChild(b);
-      }
-      else if(colDef.id === "ASSEMBLAGGIO" || colDef.id === "SPEDIZIONE"){
+      } else if(colDef.id === "ASSEMBLAGGIO" || colDef.id === "SPEDIZIONE"){
         const prev = document.createElement("button");
         prev.className = "small";
         prev.textContent = "← Indietro";
@@ -506,15 +464,13 @@ function renderBoard(){
 
         actions.appendChild(prev);
         actions.appendChild(next);
-      }
-      else if(colDef.id === "COMPLETATO"){
+      } else if(colDef.id === "COMPLETATO"){
         const prev = document.createElement("button");
         prev.className = "small";
         prev.textContent = "← Indietro";
         prev.onclick = ()=>goPrev(o.id);
         actions.appendChild(prev);
-      }
-      else if(colDef.id === "PREP"){
+      } else if(colDef.id === "PREP"){
         const del = document.createElement("button");
         del.className = "small danger";
         del.textContent = "Elimina ordine";
@@ -530,10 +486,20 @@ function renderBoard(){
   });
 }
 
-/* ---------- TABELLA ORDINI ATTIVI ---------- */
+/* ---------- TABella attivi ---------- */
+function statusLabel(o){
+  if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill ok"};
+  if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill info"};
+  if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill info"};
+
+  if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill warn"};
+  if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill warn"};
+  if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill warn"};
+  return {text:"PREPARAZIONE", cls:"pill warn"};
+}
+
 function refreshActiveTable(){
   pruneOldCompleted();
-
   const tbody = $("activeTbody");
   if(!tbody) return;
 
@@ -586,7 +552,6 @@ function refreshReports(){
   }
 
   const map = new Map();
-
   completed.forEach(o=>{
     const iso = o.completedAt || o.updatedAt || o.createdAt;
     const k = (mode === "monthly") ? monthKey(iso) : dateKey(iso);
@@ -602,7 +567,7 @@ function refreshReports(){
     const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
 
     const block = document.createElement("div");
-    block className = "panel";
+    block.className = "panel"; // ✅ FIX QUI
     block.style.marginBottom = "12px";
 
     block.innerHTML = `
@@ -635,7 +600,6 @@ function refreshReports(){
         </tbody>
       </table>
     `;
-
     wrap.appendChild(block);
   });
 }
@@ -645,28 +609,10 @@ document.addEventListener("DOMContentLoaded", () => {
   pruneOldCompleted();
   showNew();
 
-  // refresh "soft" per:
-  // - sparizione completati scaduti
-  // - aggiornamento board/tabelle
   setInterval(() => {
-    const pageNew = $("page-new");
-    if(pageNew && !pageNew.classList.contains("hide")){
-      refreshActiveTable();
-    }
-
-    const pagePrep = $("page-prep");
-    if(pagePrep && !pagePrep.classList.contains("hide")){
-      renderBoard();
-    }
-
-    const pageStock = $("page-stock");
-    if(pageStock && !pageStock.classList.contains("hide")){
-      refreshStock();
-    }
-
-    const pageReports = $("page-reports");
-    if(pageReports && !pageReports.classList.contains("hide")){
-      refreshReports();
-    }
+    if($("page-new") && !$("page-new").classList.contains("hide")) refreshActiveTable();
+    if($("page-prep") && !$("page-prep").classList.contains("hide")) renderBoard();
+    if($("page-stock") && !$("page-stock").classList.contains("hide")) refreshStock();
+    if($("page-reports") && !$("page-reports").classList.contains("hide")) refreshReports();
   }, 60000);
 });
