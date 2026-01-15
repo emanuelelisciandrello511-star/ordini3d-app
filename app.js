@@ -1,15 +1,27 @@
 /* =========================
-   PIANETA 3D LAB - app.js (FULL v6.1 FIX)
-   - Ordini + Board produzione
-   - COMPLETATO sparisce dall'operativo dopo 24h
-   - Magazzino: codice + quantita + colori + elimina con password
-   - Se articolo in magazzino (qty>0): bottone "Ritira in magazzino" -> scala 1 -> va in SPEDIZIONE
-   - Report protetti (0000): giornaliero/mensile + stampa
+   PIANETA 3D LAB - app.js (FULL v6.2)
+   - Ordini: board produzione con 2 stampe -> assemblaggio -> spedizione -> completato
+   - COMPLETATO: sparisce dall'operativo dopo 24h (resta nei report)
+   - Magazzino: codice + quantita
+       * qty == 0 => riga intera rossa
+       * qty > 2  => numero verde
+       * eliminazione solo con password (0000)
+   - Se articolo in magazzino (qty > 0): bottone "Ritira in magazzino" -> scala 1 -> va in SPEDIZIONE
+   - Report incassi protetti (0000):
+       * Giornaliero (tutti) / Mensile (tutti)
+       * Seleziona giorno (date)
+       * Seleziona mese (month)
+       * Stampa con window.print()
+   - Inserimento ordini veloce:
+       * layout a colonna (index)
+       * TAB tra i campi
+       * ENTER salva (tranne textarea note)
+       * ArrowDown/ArrowUp cambiano campo (tranne nel prezzo)
    - Memoria report: ultimi 365 giorni sui completati
    ========================= */
 
-const ORDERS_KEY = "p3dlab_orders_v6_1";
-const STOCK_KEY  = "p3dlab_stock_v6_1";
+const ORDERS_KEY = "p3dlab_orders_v6_2";
+const STOCK_KEY  = "p3dlab_stock_v6_2";
 
 /* ====== PASSWORD ====== */
 const PASS_REPORTS = "0000";
@@ -106,6 +118,7 @@ function showNew(){
   hideAllPages();
   $("page-new")?.classList.remove("hide");
   refreshActiveTable();
+  setupQuickOrderEntry(); // ✅ focus + scorciatoie
 }
 function showPrep(){
   hideAllPages();
@@ -134,6 +147,10 @@ function openReports(){
   }
   hideAllPages();
   $("page-reports")?.classList.remove("hide");
+
+  // mostra filtro corretto (funzione definita in index)
+  if(typeof window.syncReportFilters === "function") window.syncReportFilters();
+
   refreshReports();
 }
 function lockReports(){
@@ -217,6 +234,10 @@ function refreshStock(){
   entries.forEach(item=>{
     const safeCode = item.code.replace(/'/g, "\\'");
     const tr = document.createElement("tr");
+
+    // ✅ Riga intera rossa se qty=0
+    if(item.qty === 0) tr.classList.add("row-red");
+
     tr.innerHTML = `
       <td>${item.code}</td>
       <td><span class="${qtyClass(item.qty)}">${item.qty}</span></td>
@@ -264,12 +285,13 @@ function addOrder(){
 
   saveOrders();
 
+  // pulizia rapida campi
   ["cliente","sito","progetto","prezzo","note"].forEach(x=>{
     const el = $(x); if(el) el.value = "";
   });
 
-  showPrep();
-  refreshActiveTable();
+  // ✅ Restiamo su Nuovo ordine per inserire velocemente
+  showNew();
 }
 
 function autoToAssemblaggio(o){
@@ -402,7 +424,7 @@ function renderBoard(){
 
     items.forEach(o=>{
       const card = document.createElement("div");
-      card.className = "card" + (o.flow === FLOW.COMPLETATO ? " done" : "");
+      card.className = "card";
       card.style.background = colDef.bg;
       card.style.borderColor = colDef.border;
 
@@ -504,7 +526,6 @@ function refreshActiveTable(){
   if(!tbody) return;
 
   const actives = orders.filter(o => isCompletedVisibleOperational(o));
-
   tbody.innerHTML = "";
 
   if(actives.length === 0){
@@ -528,7 +549,7 @@ function refreshActiveTable(){
   });
 }
 
-/* ---------- REPORT ---------- */
+/* ---------- REPORT INCASSI ---------- */
 function getCompleted365(){
   pruneOldCompleted();
   const t = nowMs();
@@ -551,10 +572,40 @@ function refreshReports(){
     return;
   }
 
+  // Filtri selezione
+  const pickedDay = $("reportDay")?.value;     // YYYY-MM-DD
+  const pickedMonth = $("reportMonth")?.value; // YYYY-MM
+
+  let list = completed;
+
+  if(mode === "pickday"){
+    if(!pickedDay){
+      wrap.innerHTML = `<div class="muted">Seleziona un giorno e premi Aggiorna.</div>`;
+      return;
+    }
+    list = completed.filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt) === pickedDay);
+  }
+
+  if(mode === "pickmonth"){
+    if(!pickedMonth){
+      wrap.innerHTML = `<div class="muted">Seleziona un mese e premi Aggiorna.</div>`;
+      return;
+    }
+    list = completed.filter(o => monthKey(o.completedAt || o.updatedAt || o.createdAt) === pickedMonth);
+  }
+
+  if(list.length === 0){
+    wrap.innerHTML = `<div class="muted">Nessun incasso trovato per il filtro selezionato.</div>`;
+    return;
+  }
+
+  // Raggruppamento
   const map = new Map();
-  completed.forEach(o=>{
+  list.forEach(o=>{
     const iso = o.completedAt || o.updatedAt || o.createdAt;
-    const k = (mode === "monthly") ? monthKey(iso) : dateKey(iso);
+    const k = (mode === "monthly") ? monthKey(iso)
+          : (mode === "pickmonth") ? monthKey(iso)
+          : dateKey(iso);
     if(!map.has(k)) map.set(k, []);
     map.get(k).push(o);
   });
@@ -567,12 +618,15 @@ function refreshReports(){
     const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
 
     const block = document.createElement("div");
-    block.className = "panel"; // ✅ FIX QUI
+    block.className = "panel";
     block.style.marginBottom = "12px";
+
+    const title =
+      (mode === "monthly" || mode === "pickmonth") ? ("Mese " + k) : ("Giorno " + k);
 
     block.innerHTML = `
       <div class="row" style="justify-content:space-between;align-items:center">
-        <b>${mode === "monthly" ? ("Mese " + k) : ("Giorno " + k)}</b>
+        <b>${title}</b>
         <span class="pill ok">Totale € ${euro(total)} • Ordini ${arr.length}</span>
       </div>
 
@@ -602,6 +656,64 @@ function refreshReports(){
     `;
     wrap.appendChild(block);
   });
+}
+
+/* ---------- QUICK ENTRY (tastiera) ---------- */
+let quickEntryBound = false;
+
+function setupQuickOrderEntry(){
+  const cliente = $("cliente");
+  const sito = $("sito");
+  const progetto = $("progetto");
+  const prezzo = $("prezzo");
+  const note = $("note");
+
+  const fields = [cliente, sito, progetto, prezzo, note].filter(Boolean);
+  if(fields.length === 0) return;
+
+  // evito doppio bind se richiamata piu volte
+  if(quickEntryBound) {
+    cliente?.focus();
+    return;
+  }
+  quickEntryBound = true;
+
+  function focusIndex(i){
+    const el = fields[i];
+    if(!el) return;
+    el.focus();
+    if(el.tagName === "INPUT") el.select?.();
+  }
+
+  fields.forEach((el, idx)=>{
+    el.addEventListener("keydown", (e)=>{
+      const isTextarea = el.tagName === "TEXTAREA";
+
+      // ENTER salva (tranne note)
+      if(e.key === "Enter" && !isTextarea){
+        e.preventDefault();
+        addOrder();
+        return;
+      }
+
+      // ArrowDown/Up per cambiare campo (tranne prezzo)
+      if(e.key === "ArrowDown"){
+        if(el.id === "prezzo") return;
+        e.preventDefault();
+        focusIndex(Math.min(idx+1, fields.length-1));
+        return;
+      }
+      if(e.key === "ArrowUp"){
+        if(el.id === "prezzo") return;
+        e.preventDefault();
+        focusIndex(Math.max(idx-1, 0));
+        return;
+      }
+    });
+  });
+
+  // focus iniziale
+  focusIndex(0);
 }
 
 /* ---------- START ---------- */
