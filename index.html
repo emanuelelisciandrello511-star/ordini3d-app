@@ -19,8 +19,10 @@
     .tab.active{border-color:#b9c3ff}
     .panel{background:#fff;border:1px solid #e6e7ee;border-radius:12px;padding:12px}
     .label{font-size:12px;color:#555;margin:6px 0 4px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+
+    /* ✅ NUOVO ORDINE: UNA VOCE SOTTO L'ALTRA */
+    .grid1{display:grid;grid-template-columns:1fr;gap:10px}
+
     .hide{display:none}
 
     .board{display:grid;grid-template-columns:repeat(6,minmax(220px,1fr));gap:10px;align-items:start}
@@ -43,6 +45,7 @@
     th,td{font-size:12px;text-align:left;padding:10px;border-top:1px solid #eef0f6}
     thead th{font-size:12px;color:#555;border-top:none}
     tbody tr:hover{background:#fafbff}
+
     .pill{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid #e6e7ee;color:#444;background:#fff}
     .pill.ok{border-color:#cfe9d6;background:#f4fff7}
     .pill.warn{border-color:#ffe3b7;background:#fff8e8}
@@ -52,6 +55,11 @@
     .qty{font-weight:700}
     .qty.red{color:#b00020}
     .qty.green{color:#0b7a2a}
+
+    /* ✅ Riga intera rossa quando qty=0 */
+    .row-red td{background:#fff5f5 !important}
+    .row-red td:first-child{border-left:3px solid #ff8a8a}
+    .row-red:hover td{background:#ffecec !important}
 
     /* Stampa report */
     @media print{
@@ -70,7 +78,7 @@
       <button class="tab active" id="tab-new" onclick="showNew(); setActive('new')">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep(); setActive('prep')">Produzione</button>
       <button class="tab" id="tab-stock" onclick="showStock(); setActive('stock')">Magazzino</button>
-      <button class="tab" id="tab-reports" onclick="openReports(); setActive('reports')">Report</button>
+      <button class="tab" id="tab-reports" onclick="openReports(); setActive('reports')">Report incassi</button>
     </div>
   </div>
 </header>
@@ -79,33 +87,36 @@
 
   <!-- NUOVO ORDINE -->
   <div id="page-new" class="panel">
-    <div class="grid2">
+    <div class="grid1">
       <div>
         <div class="label">Cliente</div>
-        <input id="cliente" placeholder="Es. Mario Rossi">
+        <input id="cliente" placeholder="Es. Mario Rossi" autocomplete="off">
       </div>
+
       <div>
         <div class="label">Sito vendita</div>
-        <input id="sito" placeholder="Etsy / eBay / WhatsApp">
+        <input id="sito" placeholder="Etsy / eBay / WhatsApp" autocomplete="off">
       </div>
+
       <div>
         <div class="label">Numero progetto (ARTICOLO)</div>
-        <input id="progetto" placeholder="PRJ-2026-001">
+        <input id="progetto" placeholder="PRJ-2026-001" autocomplete="off">
       </div>
+
       <div>
         <div class="label">Prezzo (€)</div>
         <input id="prezzo" type="number" step="0.01" placeholder="49.90">
       </div>
-    </div>
 
-    <div style="margin-top:10px">
-      <div class="label">Note (opzionale)</div>
-      <textarea id="note" placeholder="Dettagli utili..."></textarea>
+      <div>
+        <div class="label">Note (opzionale)</div>
+        <textarea id="note" placeholder="Dettagli utili..."></textarea>
+      </div>
     </div>
 
     <div class="row no-print" style="margin-top:10px">
       <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-      <span class="muted">Comparirà in Produzione con data/ora. Se in magazzino, potrai cliccare “Ritira in magazzino”.</span>
+      <span class="muted">Inserimento veloce: TAB tra i campi, INVIO per salvare (lo impostiamo in app.js).</span>
     </div>
 
     <div style="margin-top:14px">
@@ -144,10 +155,10 @@
         <button class="small" onclick="refreshStock()">Aggiorna</button>
       </div>
 
-      <div class="grid2" style="margin-top:10px">
+      <div class="grid1" style="margin-top:10px">
         <div>
           <div class="label">Codice prodotto</div>
-          <input id="stockCode" placeholder="PRJ-2026-001">
+          <input id="stockCode" placeholder="PRJ-2026-001" autocomplete="off">
         </div>
         <div>
           <div class="label">Quantità</div>
@@ -157,7 +168,7 @@
 
       <div class="row no-print" style="margin-top:10px">
         <button class="ok" onclick="addOrUpdateStock()">+ Salva in magazzino</button>
-        <span class="muted">0 = rosso • sopra 2 = verde</span>
+        <span class="muted">0 = riga rossa • sopra 2 = verde (numero)</span>
       </div>
 
       <table>
@@ -173,22 +184,32 @@
     </div>
   </div>
 
-  <!-- REPORT (protetta) -->
+  <!-- REPORT INCASSI (protetto) -->
   <div id="page-reports" class="hide">
     <div class="panel">
       <div class="row no-print" style="justify-content:space-between;align-items:center">
-        <b>Report</b>
+        <b>Report incassi</b>
         <div class="row">
-          <select id="reportMode" onchange="refreshReports()">
-            <option value="daily">Giornaliero</option>
-            <option value="monthly">Mensile</option>
+          <select id="reportMode" onchange="syncReportFilters(); refreshReports();">
+            <option value="daily">Giornaliero (tutti)</option>
+            <option value="monthly">Mensile (tutti)</option>
+            <option value="pickday">Seleziona giorno</option>
+            <option value="pickmonth">Seleziona mese</option>
           </select>
+
+          <!-- filtri -->
+          <input id="reportDay" type="date" class="no-print" style="display:none" />
+          <input id="reportMonth" type="month" class="no-print" style="display:none" />
+
           <button class="small" onclick="refreshReports()">Aggiorna</button>
           <button class="small ok" onclick="window.print()">Stampa</button>
           <button class="small danger" onclick="lockReports()">Blocca</button>
         </div>
       </div>
-      <div class="muted">Solo ordini completati (ultimi 365 giorni). Seleziona giornaliero o mensile e poi premi “Stampa”.</div>
+
+      <div class="muted">
+        Solo ordini completati (ultimi 365 giorni). Se vuoi un giorno preciso scegli “Seleziona giorno”, imposta la data e premi Aggiorna.
+      </div>
 
       <div id="reportsWrap" style="margin-top:12px"></div>
     </div>
@@ -202,6 +223,15 @@
     document.getElementById('tab-prep').classList.toggle('active', which==='prep');
     document.getElementById('tab-stock').classList.toggle('active', which==='stock');
     document.getElementById('tab-reports').classList.toggle('active', which==='reports');
+  }
+
+  // Mostra/nasconde i filtri data/mese in base alla modalita report
+  function syncReportFilters(){
+    const mode = document.getElementById("reportMode")?.value || "daily";
+    const day = document.getElementById("reportDay");
+    const mon = document.getElementById("reportMonth");
+    if(day) day.style.display = (mode === "pickday") ? "inline-block" : "none";
+    if(mon) mon.style.display = (mode === "pickmonth") ? "inline-block" : "none";
   }
 </script>
 
