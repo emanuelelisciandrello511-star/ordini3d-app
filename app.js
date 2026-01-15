@@ -1,53 +1,36 @@
 /* =========================
-   ORDINI 3D - LAB (FULL v5.2)
-   - colonne colorate
-   - tabella "ordini attivi"
-   - vendite protette (password 0000)
-   - COMPLETATO: sparisce da operativo dopo 24h
-   - Vendite: memoria 365 giorni
-   - Export Excel (CSV): A=Giorno, B=Prodotto, C=Prezzo + TOTALE
+   PIANETA 3D LAB - app.js (FULL v6)
+   - Ordini: produzione con 2 stampe (frontale/posteriore) -> assemblaggio -> spedizione -> completato
+   - COMPLETATO: sparisce da operativo dopo 24h (resta nei report)
+   - Report: protetto (0000), giornaliero/mensile + stampa (window.print)
+   - Magazzino: codice + quantità
+       * qty == 0 => rosso
+       * qty > 2  => verde
+       * eliminazione solo con password (0000)
+   - Se articolo in magazzino (qty > 0): in Produzione appare bottone "Ritira in magazzino"
+       -> scala 1 dal magazzino
+       -> manda ordine direttamente in SPEDIZIONE (salta stampa/assemblaggio)
+   - Memoria vendite: ultimi 365 giorni (rolling retention sui completati)
    ========================= */
 
-const LS_KEY = "ordini3d_orders_v5_2";
+const ORDERS_KEY = "p3dlab_orders_v6";
+const STOCK_KEY  = "p3dlab_stock_v6";
+
+/* ====== PASSWORD ====== */
+const PASS_REPORTS = "0000";
+const PASS_STOCK_DELETE = "0000";
 
 /* ====== RETENTION / TTL ====== */
-const DONE_TTL_MS = 24 * 60 * 60 * 1000;              // 24 ore visibilità operativa
-const SALES_RETENTION_MS = 365 * 24 * 60 * 60 * 1000; // 365 giorni vendite
-
-/* ---------- LOAD/SAVE ---------- */
-function loadOrders() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
-  catch { return []; }
-}
-function saveOrders() {
-  localStorage.setItem(LS_KEY, JSON.stringify(orders));
-}
-
-/* ---------- DATA ---------- */
-let orders = loadOrders();
-
-/* ---------- FLOW ---------- */
-const FLOW = {
-  PREPARAZIONE: "PREPARAZIONE",
-  ASSEMBLAGGIO: "ASSEMBLAGGIO",
-  SPEDIZIONE: "SPEDIZIONE",
-  COMPLETATO: "COMPLETATO",
-};
-
-/* ---------- COLONNE + COLORI ---------- */
-const COLS = [
-  { id: "PREP",        title: "🟡 Preparazione",      bg: "#fff7cc", border: "#f1d36a" },
-  { id: "FRONTALE",    title: "🔵 Stampa frontale",   bg: "#e8f2ff", border: "#7fb0ff" },
-  { id: "POSTERIORE",  title: "🟠 Stampa posteriore", bg: "#ffe9dc", border: "#ffb184" },
-  { id: "ASSEMBLAGGIO",title: "🟣 Assemblaggio",      bg: "#f3e8ff", border: "#b68cff" },
-  { id: "SPEDIZIONE",  title: "🟤 Spedizione",        bg: "#f1efe9", border: "#cbbfa6" },
-  { id: "COMPLETATO",  title: "🟢 Completato (24h)",  bg: "#dfffe6", border: "#33c26b" },
-];
+const DONE_TTL_MS = 24 * 60 * 60 * 1000;               // 24h visibilità operativo
+const SALES_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;  // 365 giorni report vendite
 
 /* ---------- UTILS ---------- */
 function $(id){ return document.getElementById(id); }
-
 function pad(n){ return String(n).padStart(2,"0"); }
+function euro(n){
+  const x = Number(n);
+  return Number.isNaN(x) ? "0.00" : x.toFixed(2);
+}
 function fmtDT(iso){
   if(!iso) return "-";
   const d = new Date(iso);
@@ -57,32 +40,66 @@ function dateKey(iso){
   const d = new Date(iso);
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
-function euro(n){
-  const x = Number(n);
-  return Number.isNaN(x) ? "0.00" : x.toFixed(2);
+function monthKey(iso){
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
 }
-function touch(o){
-  o.updatedAt = new Date().toISOString();
-}
+function nowIso(){ return new Date().toISOString(); }
 function nowMs(){ return Date.now(); }
 
-/* ====== REGOLE VISIBILITA / RETENTION ====== */
+/* ---------- LOAD / SAVE ---------- */
+function loadJSON(key, fallback){
+  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+  catch { return fallback; }
+}
+function saveJSON(key, val){
+  localStorage.setItem(key, JSON.stringify(val));
+}
+
+/* ---------- DATA ---------- */
+let orders = loadJSON(ORDERS_KEY, []);
+let stock  = loadJSON(STOCK_KEY, {}); // { "PRJ-...": number }
+
+/* ---------- FLOW ---------- */
+const FLOW = {
+  PREPARAZIONE: "PREPARAZIONE",
+  ASSEMBLAGGIO: "ASSEMBLAGGIO",
+  SPEDIZIONE: "SPEDIZIONE",
+  COMPLETATO: "COMPLETATO",
+};
+
+/* ---------- COLONNE BOARD ---------- */
+const COLS = [
+  { id: "PREP",        title: "🟡 Preparazione",       bg: "#fff7cc", border: "#f1d36a" },
+  { id: "FRONTALE",    title: "🔵 Stampa frontale",    bg: "#e8f2ff", border: "#7fb0ff" },
+  { id: "POSTERIORE",  title: "🟠 Stampa posteriore",  bg: "#ffe9dc", border: "#ffb184" },
+  { id: "ASSEMBLAGGIO",title: "🟣 Assemblaggio",       bg: "#f3e8ff", border: "#b68cff" },
+  { id: "SPEDIZIONE",  title: "🟤 Spedizione",         bg: "#f1efe9", border: "#cbbfa6" },
+  { id: "COMPLETATO",  title: "🟢 Completato (24h)",   bg: "#dfffe6", border: "#33c26b" },
+];
+
+/* ---------- HELPERS (orders) ---------- */
+function saveOrders(){ saveJSON(ORDERS_KEY, orders); }
+function saveStock(){ saveJSON(STOCK_KEY, stock); }
+
+function touch(o){ o.updatedAt = nowIso(); }
+
 function completedTsMs(o){
   const iso = o.completedAt || o.updatedAt || o.createdAt;
   return iso ? new Date(iso).getTime() : 0;
 }
 
-// COMPLETATO visibile in operativo solo 24h
+/* COMPLETATO visibile nell'operativo solo 24h */
 function isCompletedVisibleOperational(o){
   if(o.flow !== FLOW.COMPLETATO) return true;
   return (nowMs() - completedTsMs(o)) <= DONE_TTL_MS;
 }
 
-// Elimina completati più vecchi di 365 giorni (vendite)
+/* retention: rimuove completati più vecchi di 365 giorni */
 function pruneOldCompleted(){
   const t = nowMs();
   const before = orders.length;
-  orders = orders.filter(o => {
+  orders = orders.filter(o=>{
     if(o.flow !== FLOW.COMPLETATO) return true;
     return (t - completedTsMs(o)) <= SALES_RETENTION_MS;
   });
@@ -91,9 +108,9 @@ function pruneOldCompleted(){
 
 /* ---------- NAV / PAGES ---------- */
 function hideAllPages(){
-  ["page-new","page-prep","page-sales"].forEach(id=>{
+  ["page-new","page-prep","page-stock","page-reports"].forEach(id=>{
     const el = $(id);
-    if (el) el.classList.add("hide");
+    if(el) el.classList.add("hide");
   });
 }
 
@@ -106,16 +123,129 @@ function showNew(){
 function showPrep(){
   hideAllPages();
   $("page-prep")?.classList.remove("hide");
-  render();
+  renderBoard();
 }
 
-function showSales(){
+function showStock(){
   hideAllPages();
-  $("page-sales")?.classList.remove("hide");
-  refreshSales();
+  $("page-stock")?.classList.remove("hide");
+  refreshStock();
 }
 
-/* ---------- CREATE ORDER ---------- */
+/* Reports protetti */
+const REPORTS_UNLOCK_KEY = "p3dlab_reports_unlocked";
+
+function openReports(){
+  pruneOldCompleted();
+  const unlocked = sessionStorage.getItem(REPORTS_UNLOCK_KEY) === "1";
+  if(!unlocked){
+    const pass = prompt("Password Report:");
+    if(pass !== PASS_REPORTS){
+      alert("Password errata.");
+      return;
+    }
+    sessionStorage.setItem(REPORTS_UNLOCK_KEY, "1");
+  }
+  hideAllPages();
+  $("page-reports")?.classList.remove("hide");
+  refreshReports();
+}
+
+function lockReports(){
+  sessionStorage.removeItem(REPORTS_UNLOCK_KEY);
+  alert("Report bloccati.");
+  showNew();
+}
+
+/* ---------- MAGAZZINO ---------- */
+function normCode(code){
+  return String(code || "").trim();
+}
+function getStockQty(code){
+  const k = normCode(code);
+  return Number(stock[k] || 0);
+}
+function setStockQty(code, qty){
+  const k = normCode(code);
+  stock[k] = Math.max(0, Math.floor(Number(qty) || 0));
+  saveStock();
+}
+function deleteStockItem(code){
+  const k = normCode(code);
+  delete stock[k];
+  saveStock();
+}
+
+function addOrUpdateStock(){
+  const code = normCode($("stockCode")?.value);
+  const qty = Number($("stockQty")?.value);
+
+  if(!code){
+    alert("Inserisci il Codice prodotto.");
+    return;
+  }
+  if(Number.isNaN(qty) || qty < 0){
+    alert("Quantità non valida.");
+    return;
+  }
+
+  setStockQty(code, qty);
+
+  if($("stockCode")) $("stockCode").value = "";
+  if($("stockQty")) $("stockQty").value = "";
+
+  refreshStock();
+  // aggiorna anche board per mostrare/occondere "Ritira in magazzino"
+  renderBoard();
+}
+
+function askDeleteStock(code){
+  const pass = prompt("Password eliminazione prodotto magazzino:");
+  if(pass !== PASS_STOCK_DELETE){
+    alert("Password errata.");
+    return;
+  }
+  if(!confirm(`Eliminare dal magazzino: ${code} ?`)) return;
+  deleteStockItem(code);
+  refreshStock();
+  renderBoard();
+}
+
+function qtyClass(q){
+  if(q === 0) return "qty red";
+  if(q > 2) return "qty green";
+  return "qty";
+}
+
+function refreshStock(){
+  const tbody = $("stockTbody");
+  if(!tbody) return;
+
+  const entries = Object.keys(stock)
+    .sort((a,b)=>a.localeCompare(b))
+    .map(k=>({ code:k, qty:Number(stock[k]||0) }));
+
+  tbody.innerHTML = "";
+
+  if(entries.length === 0){
+    tbody.innerHTML = `<tr><td colspan="3" class="muted">Magazzino vuoto.</td></tr>`;
+    return;
+  }
+
+  entries.forEach(item=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${item.code}</td>
+      <td><span class="${qtyClass(item.qty)}">${item.qty}</span></td>
+      <td class="no-print">
+        <button class="small danger" onclick="askDeleteStock('${item.code.replace(/'/g,"\\'")}')">Elimina</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ---------- ORDINI ---------- */
 function addOrder(){
   const cliente  = $("cliente")?.value.trim();
   const sito     = $("sito")?.value.trim();
@@ -130,11 +260,14 @@ function addOrder(){
 
   pruneOldCompleted();
 
-  const now = new Date().toISOString();
+  const now = nowIso();
   const id = `${articolo}__${Date.now()}`;
 
   orders.unshift({
-    id, cliente, sito, articolo,
+    id,
+    cliente,
+    sito,
+    articolo,
     prezzo: Number(prezzo),
     note,
     flow: FLOW.PREPARAZIONE,
@@ -142,7 +275,8 @@ function addOrder(){
     posterioreOK: false,
     createdAt: now,
     updatedAt: now,
-    completedAt: null
+    completedAt: null,
+    fromStock: false
   });
 
   saveOrders();
@@ -155,7 +289,6 @@ function addOrder(){
   refreshActiveTable();
 }
 
-/* ---------- LOGICA 2 STANZE STAMPA ---------- */
 function autoToAssemblaggio(o){
   if(o.flow === FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK){
     o.flow = FLOW.ASSEMBLAGGIO;
@@ -170,7 +303,7 @@ function setFrontaleOK(id){
   touch(o);
   autoToAssemblaggio(o);
   saveOrders();
-  render();
+  renderBoard();
   refreshActiveTable();
 }
 
@@ -181,17 +314,50 @@ function setPosterioreOK(id){
   touch(o);
   autoToAssemblaggio(o);
   saveOrders();
-  render();
+  renderBoard();
   refreshActiveTable();
 }
 
-/* ---------- AVANZAMENTO ---------- */
+/* Ritira dal magazzino:
+   - solo se qty > 0
+   - scala 1
+   - manda in SPEDIZIONE
+   - segna fromStock=true
+*/
+function pickFromStock(orderId){
+  const o = orders.find(x=>x.id===orderId);
+  if(!o) return;
+
+  const code = normCode(o.articolo);
+  const q = getStockQty(code);
+
+  if(q <= 0){
+    alert("Quantità magazzino = 0. Non puoi ritirare.");
+    return;
+  }
+
+  if(!confirm(`Ritira 1 pezzo dal magazzino per ${code}?`)) return;
+
+  setStockQty(code, q - 1);
+
+  o.fromStock = true;
+  o.flow = FLOW.SPEDIZIONE;      // salta stampa/assemblaggio
+  o.frontaleOK = true;
+  o.posterioreOK = true;
+  touch(o);
+
+  saveOrders();
+  refreshStock();
+  renderBoard();
+  refreshActiveTable();
+}
+
 function goPrev(id){
   const o = orders.find(x=>x.id===id);
   if(!o) return;
 
   if(o.flow === FLOW.SPEDIZIONE) o.flow = FLOW.ASSEMBLAGGIO;
-  else if(o.flow === FLOW.COMPLETATO) {
+  else if(o.flow === FLOW.COMPLETATO){
     o.flow = FLOW.SPEDIZIONE;
     o.completedAt = null;
   }
@@ -199,9 +365,9 @@ function goPrev(id){
 
   touch(o);
   saveOrders();
-  render();
+  renderBoard();
   refreshActiveTable();
-  refreshSales();
+  refreshReports();
 }
 
 function goNext(id){
@@ -211,26 +377,26 @@ function goNext(id){
   if(o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.SPEDIZIONE;
   else if(o.flow === FLOW.SPEDIZIONE){
     o.flow = FLOW.COMPLETATO;
-    o.completedAt = new Date().toISOString();
+    o.completedAt = nowIso();
   }
 
   touch(o);
   saveOrders();
-  render();
+  renderBoard();
   refreshActiveTable();
-  refreshSales();
+  refreshReports();
 }
 
 function removeOrder(id){
   if(!confirm("Eliminare questo ordine?")) return;
   orders = orders.filter(x=>x.id!==id);
   saveOrders();
-  render();
+  renderBoard();
   refreshActiveTable();
-  refreshSales();
+  refreshReports();
 }
 
-/* ---------- FILTRI COLONNE ---------- */
+/* colonne */
 function inCol(o, colId){
   if(!isCompletedVisibleOperational(o)) return false;
 
@@ -255,7 +421,7 @@ function statusLabel(o){
 }
 
 /* ---------- RENDER BOARD ---------- */
-function render(){
+function renderBoard(){
   pruneOldCompleted();
 
   const board = $("board");
@@ -283,6 +449,9 @@ function render(){
         ? `<br><b>Completato:</b> ${fmtDT(o.completedAt)} <span class="muted">(sparisce dall’operativo dopo 24h)</span>`
         : "";
 
+      const stockQty = getStockQty(o.articolo);
+      const canPick = (o.flow === FLOW.PREPARAZIONE) && (stockQty > 0);
+
       card.innerHTML = `
         <div class="title">${o.articolo} — € ${euro(o.prezzo)}</div>
         <div class="meta">
@@ -290,6 +459,7 @@ function render(){
           <b>Sito:</b> ${o.sito}<br>
           <b>Frontale:</b> ${o.frontaleOK ? "OK ✅" : "NO ❌"} &nbsp;|&nbsp;
           <b>Posteriore:</b> ${o.posterioreOK ? "OK ✅" : "NO ❌"}<br>
+          <b>Magazzino:</b> ${stockQty} pz ${o.fromStock ? `<span class="pill ok">RITIRATO</span>` : ""}<br>
           <b>Creato:</b> ${fmtDT(o.createdAt)}<br>
           <b>Agg.:</b> ${fmtDT(o.updatedAt)}
           ${o.note ? `<br><b>Note:</b> ${o.note}` : ""}
@@ -299,6 +469,15 @@ function render(){
 
       const actions = document.createElement("div");
       actions.className = "actions";
+
+      // Ritira in magazzino (salta stampa)
+      if(canPick){
+        const b = document.createElement("button");
+        b.className = "small ok";
+        b.textContent = "Ritira in magazzino → Spedizione";
+        b.onclick = ()=>pickFromStock(o.id);
+        actions.appendChild(b);
+      }
 
       if(colDef.id === "FRONTALE"){
         const b = document.createElement("button");
@@ -338,7 +517,7 @@ function render(){
       else if(colDef.id === "PREP"){
         const del = document.createElement("button");
         del.className = "small danger";
-        del.textContent = "Elimina";
+        del.textContent = "Elimina ordine";
         del.onclick = ()=>removeOrder(o.id);
         actions.appendChild(del);
       }
@@ -351,7 +530,7 @@ function render(){
   });
 }
 
-/* ---------- TABELLA "ORDINI ATTIVI" (NUOVO ORDINE) ---------- */
+/* ---------- TABELLA ORDINI ATTIVI ---------- */
 function refreshActiveTable(){
   pruneOldCompleted();
 
@@ -383,31 +562,8 @@ function refreshActiveTable(){
   });
 }
 
-/* ---------- VENDITE (PASSWORD 0000) ---------- */
-const SALES_UNLOCK_KEY = "ordini3d_sales_unlocked";
-
-function openSales(){
-  pruneOldCompleted();
-
-  const unlocked = sessionStorage.getItem(SALES_UNLOCK_KEY) === "1";
-  if(!unlocked){
-    const pass = prompt("Password Vendite:");
-    if(pass !== "0000"){
-      alert("Password errata.");
-      return;
-    }
-    sessionStorage.setItem(SALES_UNLOCK_KEY, "1");
-  }
-  showSales();
-}
-
-function lockSales(){
-  sessionStorage.removeItem(SALES_UNLOCK_KEY);
-  alert("Vendite bloccate.");
-  showNew();
-}
-
-function getSalesCompleted365(){
+/* ---------- REPORT ---------- */
+function getCompleted365(){
   pruneOldCompleted();
   const t = nowMs();
   return orders
@@ -417,38 +573,41 @@ function getSalesCompleted365(){
     .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
 }
 
-function refreshSales(){
-  const wrap = $("salesWrap");
+function refreshReports(){
+  const wrap = $("reportsWrap");
   if(!wrap) return;
 
-  const completed = getSalesCompleted365();
+  const mode = $("reportMode")?.value || "daily";
+  const completed = getCompleted365();
 
   if(completed.length === 0){
-    wrap.innerHTML = `<div class="muted">Nessuna vendita per ora.</div>`;
+    wrap.innerHTML = `<div class="muted">Nessun completato negli ultimi 365 giorni.</div>`;
     return;
   }
 
   const map = new Map();
+
   completed.forEach(o=>{
-    const k = dateKey(o.completedAt || o.updatedAt || o.createdAt);
+    const iso = o.completedAt || o.updatedAt || o.createdAt;
+    const k = (mode === "monthly") ? monthKey(iso) : dateKey(iso);
     if(!map.has(k)) map.set(k, []);
     map.get(k).push(o);
   });
 
-  const days = Array.from(map.keys()).sort((a,b)=>b.localeCompare(a));
+  const keys = Array.from(map.keys()).sort((a,b)=>b.localeCompare(a));
   wrap.innerHTML = "";
 
-  days.forEach(day=>{
-    const arr = map.get(day);
+  keys.forEach(k=>{
+    const arr = map.get(k);
     const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
 
     const block = document.createElement("div");
-    block.className = "panel";
+    block className = "panel";
     block.style.marginBottom = "12px";
 
     block.innerHTML = `
       <div class="row" style="justify-content:space-between;align-items:center">
-        <b>${day}</b>
+        <b>${mode === "monthly" ? ("Mese " + k) : ("Giorno " + k)}</b>
         <span class="pill ok">Totale € ${euro(total)} • Ordini ${arr.length}</span>
       </div>
 
@@ -456,22 +615,23 @@ function refreshSales(){
         <thead>
           <tr>
             <th>Ora</th>
-            <th>Articolo</th>
-            <th>Cliente</th>
-            <th>Sito</th>
+            <th>Codice prodotto</th>
             <th>€</th>
+            <th>Da magazzino</th>
           </tr>
         </thead>
         <tbody>
-          ${arr.map(o=>`
-            <tr>
-              <td>${(fmtDT(o.completedAt).split(" ")[1] || "-")}</td>
-              <td>${o.articolo}</td>
-              <td>${o.cliente}</td>
-              <td>${o.sito}</td>
-              <td>€ ${euro(o.prezzo)}</td>
-            </tr>
-          `).join("")}
+          ${arr.map(o=>{
+            const time = (fmtDT(o.completedAt).split(" ")[1] || "-");
+            return `
+              <tr>
+                <td>${time}</td>
+                <td>${o.articolo}</td>
+                <td>€ ${euro(o.prezzo)}</td>
+                <td>${o.fromStock ? "SI" : "NO"}</td>
+              </tr>
+            `;
+          }).join("")}
         </tbody>
       </table>
     `;
@@ -480,80 +640,14 @@ function refreshSales(){
   });
 }
 
-/* ---------- EXPORT EXCEL (CSV) - A=GIORNO, B=PRODOTTO, C=PREZZO + TOTALE ---------- */
-function csvCell(v){
-  const s = String(v ?? "");
-  if(/[",\n]/.test(s)){
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
-function downloadBlob(filename, content, mime){
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-// CSV con 3 colonne: Giorno, Prodotto, Prezzo
-function toCsvABC(ordersList){
-  const lines = [];
-  lines.push("Giorno,Prodotto,Prezzo");
-
-  ordersList.forEach(o=>{
-    const iso = o.completedAt || o.updatedAt || o.createdAt;
-    const day = dateKey(iso);
-
-    lines.push([
-      csvCell(day),
-      csvCell(o.articolo || ""),
-      csvCell(euro(o.prezzo))
-    ].join(","));
-  });
-
-  const total = ordersList.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
-  // riga totale senza cambiare numero colonne
-  lines.push([ "", "TOTALE", euro(total) ].join(","));
-
-  return lines.join("\n");
-}
-
-// Export giorno: chiede data YYYY-MM-DD (vuoto = oggi)
-function downloadSalesDaily(){
-  const input = prompt("Data (YYYY-MM-DD). Vuoto = oggi:", "");
-  const todayKey = dateKey(new Date().toISOString());
-  const target = (input && /^\d{4}-\d{2}-\d{2}$/.test(input)) ? input : todayKey;
-
-  const rows = getSalesCompleted365()
-    .filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt) === target);
-
-  downloadBlob(`vendite_${target}.csv`, toCsvABC(rows), "text/csv;charset=utf-8");
-}
-
-// Export mese: chiede YYYY-MM (vuoto = mese corrente)
-function downloadSalesMonthly(){
-  const input = prompt("Mese (YYYY-MM). Vuoto = mese corrente:", "");
-  const d = new Date();
-  const curr = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
-  const target = (input && /^\d{4}-\d{2}$/.test(input)) ? input : curr;
-
-  const rows = getSalesCompleted365()
-    .filter(o => dateKey(o.completedAt || o.updatedAt || o.createdAt).slice(0,7) === target);
-
-  downloadBlob(`vendite_${target}.csv`, toCsvABC(rows), "text/csv;charset=utf-8");
-}
-
 /* ---------- START ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   pruneOldCompleted();
   showNew();
 
+  // refresh "soft" per:
+  // - sparizione completati scaduti
+  // - aggiornamento board/tabelle
   setInterval(() => {
     const pageNew = $("page-new");
     if(pageNew && !pageNew.classList.contains("hide")){
@@ -562,12 +656,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const pagePrep = $("page-prep");
     if(pagePrep && !pagePrep.classList.contains("hide")){
-      render();
+      renderBoard();
     }
 
-    const pageSales = $("page-sales");
-    if(pageSales && !pageSales.classList.contains("hide")){
-      refreshSales();
+    const pageStock = $("page-stock");
+    if(pageStock && !pageStock.classList.contains("hide")){
+      refreshStock();
+    }
+
+    const pageReports = $("page-reports");
+    if(pageReports && !pageReports.classList.contains("hide")){
+      refreshReports();
     }
   }, 60000);
 });
