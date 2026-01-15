@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pianeta 3D Lab</title>
+  <title>PIANETA 3D LAB</title>
 
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f6f7fb;color:#111}
@@ -58,7 +58,7 @@
     <div class="tabs">
       <button class="tab active" id="tab-new" onclick="showNew(); setActive('new')">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep(); setActive('prep')">Produzione</button>
-      <button class="tab" id="tab-sales" onclick="openSales()">Vendite</button>
+      <button class="tab" id="tab-sales" onclick="openSales(); setActive('sales')">Vendite</button>
     </div>
   </div>
 </header>
@@ -100,7 +100,7 @@
         <b>Ordini attivi</b>
         <button class="small" onclick="refreshActiveTable()">Aggiorna</button>
       </div>
-      <div class="muted">Ordini non completati + completati nelle ultime 24 ore.</div>
+      <div class="muted">Mostra tutti gli ordini operativi (i completati spariscono dopo 24 ore).</div>
 
       <table>
         <thead>
@@ -123,7 +123,7 @@
     </div>
   </div>
 
-  <!-- VENDITE (protetta) -->
+  <!-- VENDITE -->
   <div id="page-sales" class="hide">
     <div class="panel">
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -135,7 +135,7 @@
           <button class="small danger" onclick="lockSales()">Blocca</button>
         </div>
       </div>
-      <div class="muted">Solo ordini <b>Completati</b> (ultimi 365 giorni), raggruppati per giorno con totale €.</div>
+      <div class="muted">Mostra solo ordini <b>Completati</b> (ultimi 365 giorni).</div>
       <div id="salesWrap" style="margin-top:12px"></div>
     </div>
   </div>
