@@ -10,7 +10,7 @@
     header{position:sticky;top:0;background:#fff;padding:12px 14px;border-bottom:1px solid #e6e7ee;z-index:5}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     h1{font-size:16px;margin:0}
-    input,button,textarea{padding:10px;border:1px solid #d9dbe7;border-radius:10px;background:#fff;font-size:14px}
+    input,button,textarea,select{padding:10px;border:1px solid #d9dbe7;border-radius:10px;background:#fff;font-size:14px}
     textarea{min-height:44px;resize:vertical;width:100%}
     button{cursor:pointer}
     .wrap{padding:12px}
@@ -37,7 +37,6 @@
     .small{padding:7px 9px;border-radius:10px;font-size:12px}
     .ok{border-color:#cfe9d6;background:#f4fff7}
     .danger{border-color:#ffd0d0;background:#fff5f5}
-    .done{border-color:#33c26b;background:#dfffe6}
     .muted{color:#666;font-size:12px}
 
     table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
@@ -48,6 +47,18 @@
     .pill.ok{border-color:#cfe9d6;background:#f4fff7}
     .pill.warn{border-color:#ffe3b7;background:#fff8e8}
     .pill.info{border-color:#d8e6ff;background:#f2f7ff}
+
+    /* Magazzino */
+    .qty{font-weight:700}
+    .qty.red{color:#b00020}
+    .qty.green{color:#0b7a2a}
+
+    /* Stampa report */
+    @media print{
+      header,.tabs,.no-print{display:none !important}
+      body{background:#fff}
+      .panel{border:none}
+    }
   </style>
 </head>
 
@@ -58,12 +69,14 @@
     <div class="tabs">
       <button class="tab active" id="tab-new" onclick="showNew(); setActive('new')">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep(); setActive('prep')">Produzione</button>
-      <button class="tab" id="tab-sales" onclick="openSales(); setActive('sales')">Vendite</button>
+      <button class="tab" id="tab-stock" onclick="showStock(); setActive('stock')">Magazzino</button>
+      <button class="tab" id="tab-reports" onclick="openReports(); setActive('reports')">Report</button>
     </div>
   </div>
 </header>
 
 <div class="wrap">
+
   <!-- NUOVO ORDINE -->
   <div id="page-new" class="panel">
     <div class="grid2">
@@ -90,17 +103,17 @@
       <textarea id="note" placeholder="Dettagli utili..."></textarea>
     </div>
 
-    <div class="row" style="margin-top:10px">
+    <div class="row no-print" style="margin-top:10px">
       <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-      <span class="muted">Comparirà in Produzione con data/ora.</span>
+      <span class="muted">Comparirà in Produzione con data/ora. Se in magazzino, potrai cliccare “Ritira in magazzino”.</span>
     </div>
 
     <div style="margin-top:14px">
-      <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="row no-print" style="justify-content:space-between;align-items:center">
         <b>Ordini attivi</b>
         <button class="small" onclick="refreshActiveTable()">Aggiorna</button>
       </div>
-      <div class="muted">Mostra tutti gli ordini operativi (i completati spariscono dopo 24 ore).</div>
+      <div class="muted">Gli ordini COMPLETATI spariscono dall’operativo dopo 24 ore.</div>
 
       <table>
         <thead>
@@ -123,29 +136,72 @@
     </div>
   </div>
 
-  <!-- VENDITE -->
-  <div id="page-sales" class="hide">
+  <!-- MAGAZZINO -->
+  <div id="page-stock" class="hide">
     <div class="panel">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <b>Vendite</b>
-        <div class="row">
-          <button class="small" onclick="refreshSales()">Aggiorna</button>
-          <button class="small" onclick="downloadSalesDaily()">Excel Giorno</button>
-          <button class="small" onclick="downloadSalesMonthly()">Excel Mese</button>
-          <button class="small danger" onclick="lockSales()">Blocca</button>
+      <div class="row no-print" style="justify-content:space-between;align-items:center">
+        <b>Magazzino</b>
+        <button class="small" onclick="refreshStock()">Aggiorna</button>
+      </div>
+
+      <div class="grid2" style="margin-top:10px">
+        <div>
+          <div class="label">Codice prodotto</div>
+          <input id="stockCode" placeholder="PRJ-2026-001">
+        </div>
+        <div>
+          <div class="label">Quantità</div>
+          <input id="stockQty" type="number" min="0" step="1" placeholder="0">
         </div>
       </div>
-      <div class="muted">Mostra solo ordini <b>Completati</b> (ultimi 365 giorni).</div>
-      <div id="salesWrap" style="margin-top:12px"></div>
+
+      <div class="row no-print" style="margin-top:10px">
+        <button class="ok" onclick="addOrUpdateStock()">+ Salva in magazzino</button>
+        <span class="muted">0 = rosso • sopra 2 = verde</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Codice prodotto</th>
+            <th>Quantità</th>
+            <th class="no-print">Azioni</th>
+          </tr>
+        </thead>
+        <tbody id="stockTbody"></tbody>
+      </table>
     </div>
   </div>
+
+  <!-- REPORT (protetta) -->
+  <div id="page-reports" class="hide">
+    <div class="panel">
+      <div class="row no-print" style="justify-content:space-between;align-items:center">
+        <b>Report</b>
+        <div class="row">
+          <select id="reportMode" onchange="refreshReports()">
+            <option value="daily">Giornaliero</option>
+            <option value="monthly">Mensile</option>
+          </select>
+          <button class="small" onclick="refreshReports()">Aggiorna</button>
+          <button class="small ok" onclick="window.print()">Stampa</button>
+          <button class="small danger" onclick="lockReports()">Blocca</button>
+        </div>
+      </div>
+      <div class="muted">Solo ordini completati (ultimi 365 giorni). Seleziona giornaliero o mensile e poi premi “Stampa”.</div>
+
+      <div id="reportsWrap" style="margin-top:12px"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
   function setActive(which){
     document.getElementById('tab-new').classList.toggle('active', which==='new');
     document.getElementById('tab-prep').classList.toggle('active', which==='prep');
-    document.getElementById('tab-sales').classList.toggle('active', which==='sales');
+    document.getElementById('tab-stock').classList.toggle('active', which==='stock');
+    document.getElementById('tab-reports').classList.toggle('active', which==='reports');
   }
 </script>
 
