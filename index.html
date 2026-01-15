@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Ordini 3D - Lab</title>
+  <title>Pianeta 3D Lab</title>
 
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f6f7fb;color:#111}
@@ -54,7 +54,7 @@
 <body>
 <header>
   <div class="row">
-    <h1>Ordini 3D - Laboratorio</h1>
+    <h1>PIANETA 3D LAB</h1>
     <div class="tabs">
       <button class="tab active" id="tab-new" onclick="showNew(); setActive('new')">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep(); setActive('prep')">Produzione</button>
@@ -73,7 +73,7 @@
       </div>
       <div>
         <div class="label">Sito vendita</div>
-        <input id="sito" placeholder="Etsy / Shopify / WhatsApp">
+        <input id="sito" placeholder="Etsy / eBay / WhatsApp">
       </div>
       <div>
         <div class="label">Numero progetto (ARTICOLO)</div>
@@ -89,7 +89,8 @@
       <div class="label">Note (opzionale)</div>
       <textarea id="note" placeholder="Dettagli utili..."></textarea>
     </div>
-<div class="row" style="margin-top:10px">
+
+    <div class="row" style="margin-top:10px">
       <button class="ok" onclick="addOrder()">+ Invia ordine</button>
       <span class="muted">Comparirà in Produzione con data/ora.</span>
     </div>
@@ -99,7 +100,7 @@
         <b>Ordini attivi</b>
         <button class="small" onclick="refreshActiveTable()">Aggiorna</button>
       </div>
-      <div class="muted">Ordini non completati + stato attuale.</div>
+      <div class="muted">Ordini non completati + completati nelle ultime 24 ore.</div>
 
       <table>
         <thead>
@@ -126,13 +127,15 @@
   <div id="page-sales" class="hide">
     <div class="panel">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <b>Vendite giornaliere</b>
+        <b>Vendite</b>
         <div class="row">
           <button class="small" onclick="refreshSales()">Aggiorna</button>
+          <button class="small" onclick="downloadSalesDaily()">Excel Giorno</button>
+          <button class="small" onclick="downloadSalesMonthly()">Excel Mese</button>
           <button class="small danger" onclick="lockSales()">Blocca</button>
         </div>
       </div>
-      <div class="muted">Solo ordini <b>Completati</b>, raggruppati per giorno con totale €.</div>
+      <div class="muted">Solo ordini <b>Completati</b> (ultimi 365 giorni), raggruppati per giorno con totale €.</div>
       <div id="salesWrap" style="margin-top:12px"></div>
     </div>
   </div>
