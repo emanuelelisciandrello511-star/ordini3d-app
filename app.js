@@ -1,6 +1,7 @@
 /* =========================================================
-   PIANETA 3D - LAB (APP.JS COMPLETO)
-   - Login iniziale password 0000 + "ricorda accesso"
+   PIANETA 3D - LAB (APP.JS COMPLETO - LOGIN FIXED)
+   - Login iniziale password 0000 + "Ricorda accesso"
+   - ENTER nella password per entrare
    - Nuovo ordine: multi-progetto (lista righe) + invio
    - Produzione:
      🟡 Ordini ricevuti (PREPARAZIONE): Elimina + Ritira dal magazzino (-1) -> SPEDIZIONE
@@ -13,7 +14,7 @@
      Ordini ricevuti mostra TUTTI i PREPARAZIONE (non dipende da front/post)
    - Vendite: calendario 365gg + dettaglio + stampa giorno/mese/intervallo
    - Magazzino: qty + riga rossa se qty=0
-   - Completati: pagina archivio (con elimina) + pagina semplice
+   - Completati: archivio (con elimina) + semplice
    - Impostazioni: cancella solo completati / reset totale
    ========================================================= */
 
@@ -209,6 +210,14 @@
   }
 
   /* ------------------ LOGIN UI ------------------ */
+  function setTabsEnabled(enabled){
+    const ids = ["tab-new","tab-prep","tab-sales","tab-stock","tab-done","tab-done-simple","tab-settings"];
+    ids.forEach(id=>{
+      const b = $(id);
+      if(b) b.disabled = !enabled;
+    });
+  }
+
   function showLogin(){
     $("loginScreen")?.classList.remove("hide");
     setTabsEnabled(false);
@@ -220,17 +229,9 @@
     setTabsEnabled(true);
   }
 
-  function setTabsEnabled(enabled){
-    const ids = ["tab-new","tab-prep","tab-sales","tab-stock","tab-done","tab-done-simple","tab-settings"];
-    ids.forEach(id=>{
-      const b = $(id);
-      if(b) b.disabled = !enabled;
-    });
-  }
-
   function login(){
-    const pass = $("loginPass")?.value ?? "";
-    const remember = $("loginRemember")?.checked;
+    const pass = ($("loginPass")?.value ?? "").trim(); // FIX: trim
+    const remember = !!$("loginRemember")?.checked;
 
     if(pass !== LOGIN_PASS){
       alert("Password errata.");
@@ -240,7 +241,8 @@
     if(remember) localStorage.setItem(LS_KEY_LOGIN, "1");
     else localStorage.removeItem(LS_KEY_LOGIN);
 
-    $("loginPass").value = "";
+    if($("loginPass")) $("loginPass").value = "";
+
     hideLogin();
     showNew();
   }
@@ -255,7 +257,7 @@
   function openSales(){
     const unlocked = sessionStorage.getItem(SALES_UNLOCK_KEY) === "1";
     if(!unlocked){
-      const pass = prompt("Password Vendite:");
+      const pass = (prompt("Password Vendite:") ?? "").trim();
       if(pass !== LOGIN_PASS){
         alert("Password errata.");
         return;
@@ -312,7 +314,7 @@
     if(!wrap) return;
 
     if(tempItems.length === 0){
-      wrap.innerHTML = `<div class="muted">Nessun progetto aggiunto in lista (puoi inviare anche solo quello nei campi sopra).</div>`;
+      wrap.innerHTML = `<div class="muted">Nessun progetto in lista (puoi inviare anche solo quello nei campi sopra).</div>`;
       return;
     }
 
@@ -526,13 +528,13 @@
     refreshSalesUI();
   }
 
-  /* ---- BUG FIX: Indietro da SPEDIZIONE -> PREPARAZIONE (Ordini ricevuti) ---- */
+  /* ---- BUG FIX: Indietro da SPEDIZIONE -> PREPARAZIONE ---- */
   function goPrev(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
 
     if(o.flow === FLOW.SPEDIZIONE){
-      o.flow = FLOW.PREPARAZIONE; // torna SEMPRE a Ordini ricevuti
+      o.flow = FLOW.PREPARAZIONE;
     } else if(o.flow === FLOW.COMPLETATO){
       o.flow = FLOW.SPEDIZIONE;
       o.completedAt = null;
@@ -584,7 +586,7 @@
     if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
     if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
 
-    // ORDINI RICEVUTI: tutti i PREPARAZIONE (bug fix)
+    // Ordini ricevuti: tutti i PREPARAZIONE
     if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
 
     // Front/Back: solo se in PREPARAZIONE e manca l'OK
@@ -1031,7 +1033,7 @@ ${inner}
   }
 
   /* =========================================================
-     COMPLETATI (ARCHIVIO + SEMPLICE)
+     COMPLETATI
      ========================================================= */
   function renderDone(){
     const tbody = $("doneTbody");
@@ -1129,6 +1131,16 @@ ${inner}
 
   /* ------------------ START ------------------ */
   document.addEventListener("DOMContentLoaded", () => {
+    // ENTER nella password login
+    setTimeout(() => {
+      const p = $("loginPass");
+      if(p){
+        p.addEventListener("keydown", (e) => {
+          if(e.key === "Enter") login();
+        });
+      }
+    }, 0);
+
     const ok = localStorage.getItem(LS_KEY_LOGIN) === "1";
     if(ok){
       hideLogin();
@@ -1137,7 +1149,6 @@ ${inner}
       showLogin();
     }
 
-    // refresh leggero tabella attivi solo se sei su Nuovo ordine
     setInterval(() => {
       const pageNew = $("page-new");
       if(pageNew && !pageNew.classList.contains("hide")){
