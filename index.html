@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Ordini 3D - Lab</title>
+  <title>Pianeta 3D - Lab</title>
 
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f6f7fb;color:#111}
@@ -21,6 +21,9 @@
     .label{font-size:12px;color:#555;margin:6px 0 4px}
     .hide{display:none}
     .muted{color:#666;font-size:12px}
+    .small{padding:7px 9px;border-radius:10px;font-size:12px}
+    .ok{border-color:#cfe9d6;background:#f4fff7}
+    .danger{border-color:#ffd0d0;background:#fff5f5}
 
     /* Form verticale (uno sotto l'altro) */
     .stack{display:flex;flex-direction:column;gap:10px}
@@ -38,10 +41,6 @@
     .title{font-weight:700;font-size:14px;margin:0 0 6px 0}
     .meta{font-size:12px;color:#444;line-height:1.35}
     .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-    .small{padding:7px 9px;border-radius:10px;font-size:12px}
-    .ok{border-color:#cfe9d6;background:#f4fff7}
-    .danger{border-color:#ffd0d0;background:#fff5f5}
-    .muted{color:#666;font-size:12px}
 
     /* Tables */
     table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
@@ -67,18 +66,68 @@
     /* Stock */
     .stockZero{background:#fff5f5}
     .stockZero td{border-top-color:#ffd0d0}
+
+    /* LOGIN overlay */
+    #loginScreen{
+      position:fixed; inset:0; z-index:9999;
+      display:flex; align-items:center; justify-content:center;
+      background: url("pianer.png") center/cover no-repeat;
+    }
+    #loginCard{
+      width:min(520px, calc(100% - 24px));
+      background: rgba(255,255,255,.92);
+      border:1px solid #e6e7ee;
+      border-radius:16px;
+      padding:16px;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.12);
+    }
+    #loginCard h2{margin:0 0 8px 0;font-size:16px}
+    .checkRow{display:flex;gap:8px;align-items:center}
+    .checkRow input{width:auto}
   </style>
 </head>
 
 <body>
+
+<!-- LOGIN (solo questa pagina ha sfondo foto) -->
+<div id="loginScreen" class="hide">
+  <div id="loginCard">
+    <h2>Accesso Laboratorio</h2>
+    <div class="muted">Inserisci password per entrare (0000).</div>
+
+    <div style="margin-top:10px" class="field">
+      <div class="label">Password</div>
+      <input id="loginPass" type="password" placeholder="0000">
+    </div>
+
+    <div class="checkRow" style="margin-top:10px">
+      <input id="loginRemember" type="checkbox">
+      <label for="loginRemember" class="muted">Ricorda accesso</label>
+    </div>
+
+    <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
+      <button class="ok" onclick="login()">Entra</button>
+      <button class="small danger" onclick="logout()">Esci</button>
+    </div>
+
+    <div class="muted" style="margin-top:10px">
+      Se non cambia nulla dopo aggiornamenti: fai <b>CTRL+F5</b>.
+    </div>
+  </div>
+</div>
+
 <header>
   <div class="row">
-    <h1>Ordini 3D - Laboratorio</h1>
+    <h1>Pianeta 3D - Laboratorio</h1>
     <div class="tabs">
       <button class="tab active" id="tab-new" onclick="showNew()">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep()">Produzione</button>
       <button class="tab" id="tab-sales" onclick="openSales()">Vendite</button>
       <button class="tab" id="tab-stock" onclick="showStock()">Magazzino</button>
+      <button class="tab" id="tab-done" onclick="showDone()">Completati</button>
+      <button class="tab" id="tab-done-simple" onclick="showDoneSimple()">Completati (semplice)</button>
+      <button class="tab" id="tab-settings" onclick="showSettings()">Impostazioni</button>
     </div>
   </div>
 </header>
@@ -109,7 +158,7 @@
 
       <div class="row">
         <button class="small ok" onclick="addTempItem()">+ Aggiungi progetto</button>
-        <span class="muted">Tip: usa ↑ ↓ per spostarti tra i campi (inserimento veloce).</span>
+        <span class="muted">↑ ↓ per cambiare campo • Enter su Prezzo = aggiungi • Enter su Note = invia</span>
       </div>
 
       <div id="tempItemsWrap"></div>
@@ -121,7 +170,6 @@
 
       <div class="row">
         <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-        <span class="muted">Ogni progetto verrà creato come ordine separato</span>
       </div>
     </div>
 
@@ -147,9 +195,9 @@
   <div id="page-prep" class="hide">
     <div class="panel">
       <div class="muted" style="margin-bottom:10px">
-        Regola: in <b>Assemblaggio</b> SOLO con <b>Frontale OK</b> + <b>Posteriore OK</b>.
-        • <b>Completato</b> resta visibile in board solo <b>24 ore</b>.
-        • In <b>Ordini ricevuti</b> puoi fare <b>Ritira dal magazzino</b> (se c’è giacenza) → va in <b>Spedizione</b>.
+        Regola: in <b>Assemblaggio</b> SOLO con <b>Frontale OK</b> + <b>Posteriore OK</b>.<br>
+        In <b>Ordini ricevuti</b>: <b>Ritira dal magazzino</b> → va diretto in <b>Spedizione</b>.<br>
+        <b>Completati</b> visibili in board solo <b>24 ore</b>.
       </div>
       <div class="board" id="board"></div>
     </div>
@@ -206,7 +254,6 @@
             <button class="ok" onclick="printRange()">Stampa intervallo</button>
           </div>
         </div>
-        <div class="muted" style="margin-top:6px">Seleziona date e stampa report personalizzato.</div>
       </div>
     </div>
   </div>
@@ -242,33 +289,92 @@
       </table>
     </div>
   </div>
+
+  <!-- COMPLETATI (dettaglio + elimina) -->
+  <div id="page-done" class="hide">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>Completati (archivio)</b>
+        <button class="small" onclick="renderDone()">Aggiorna</button>
+      </div>
+      <div class="muted">Qui puoi eliminare completati per liberare memoria.</div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th><th>Azioni</th>
+          </tr>
+        </thead>
+        <tbody id="doneTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- COMPLETATI (semplice) -->
+  <div id="page-done-simple" class="hide">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>Completati (semplice)</b>
+        <button class="small" onclick="renderDoneSimple()">Aggiorna</button>
+      </div>
+      <div class="muted">Solo Prodotto + Prezzo (+ data).</div>
+
+      <table>
+        <thead>
+          <tr><th>Data</th><th>Prodotto</th><th>€</th></tr>
+        </thead>
+        <tbody id="doneSimpleTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- IMPOSTAZIONI -->
+  <div id="page-settings" class="hide">
+    <div class="panel">
+      <b>Impostazioni</b>
+      <div class="muted" style="margin-top:6px">
+        Qui mettiamo solo i reset utili.
+      </div>
+
+      <div class="panel" style="margin-top:10px">
+        <b>Fix bug / pulizia</b>
+        <div class="muted">Cancella SOLO gli ordini completati (archivio) o tutta la memoria se vuoi.</div>
+        <div class="row" style="margin-top:10px">
+          <button class="small danger" onclick="clearCompleted()">Cancella SOLO completati</button>
+          <button class="small danger" onclick="clearAllData()">Reset TUTTO (ordini+magazzino)</button>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:10px">
+        <b>Accesso</b>
+        <div class="row" style="margin-top:10px">
+          <button class="small" onclick="logout()">Logout</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- Navigazione veloce con frecce (Nuovo ordine) -->
+<!-- Navigazione veloce con frecce + Enter -->
 <script>
   (function(){
     const order = ["cliente","sito","progetto","prezzo","note"];
-
     function focusByIndex(i){
       const id = order[Math.max(0, Math.min(order.length-1, i))];
       const el = document.getElementById(id);
       if(el){ el.focus(); if(el.select) el.select(); }
     }
-
     document.addEventListener("keydown", (e)=>{
       const a = document.activeElement;
       if(!a) return;
       if(!order.includes(a.id)) return;
 
-      // ↑ ↓ per cambiare campo
       if(e.key === "ArrowDown" || e.key === "ArrowUp"){
         e.preventDefault();
         const idx = order.indexOf(a.id);
         focusByIndex(idx + (e.key === "ArrowDown" ? 1 : -1));
         return;
       }
-
-      // Enter "veloce"
       if(e.key === "Enter"){
         if(a.id === "prezzo"){
           e.preventDefault();
