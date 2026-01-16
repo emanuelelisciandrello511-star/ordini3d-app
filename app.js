@@ -1,591 +1,470 @@
-/* =========================
-   SUPABASE (TUOI DATI)
-========================= */
-const SUPABASE_URL = "https://ldisjlsnshxgasopupvn.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkaXNqbHNuc2h4Z2Fzb3B1cHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MTI5NjMsImV4cCI6MjA4NDA4ODk2M30.n4zUsaL_VNA4pHMpxWa7hvUxrIrb17BIxJ03DXvzHOk";
+/* app.js — compatibile con l'index che mi hai incollato
+   - localStorage
+   - Nuovo ordine -> Produzione (board)
+   - Vendite protette password 1234
+   - Completati spariscono dopo 24h dalla lista “attivi” (ma restano per Vendite 365 gg)
+   - Export “Excel” come CSV (apri con Excel)
+*/
+(() => {
+  const LS_KEY = "pianeta3d_orders_v1";
+  const SALES_UNLOCK_KEY = "pianeta3d_sales_unlock";
+  const SALES_PASSWORD = "1234";
 
-let supabase = null;
-let supabaseEnabled = false;
+  const STATUSES = [
+    "Ricevuto",
+    "Stampa",
+    "Post-Processing",
+    "Controllo Qualità",
+    "Assemblaggio",
+    "Spedizione",
+    "Completato",
+  ];
 
-function initSupabase() {
-  if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    supabaseEnabled = true;
-  } else {
-    supabase = null;
-    supabaseEnabled = false;
+  const $ = (id) => document.getElementById(id);
+  const now = () => Date.now();
+
+  function pad2(n){ return String(n).padStart(2,"0"); }
+
+  function fmtDateTime(ts){
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
-  updateSyncBadge();
-}
-
-/* =========================
-   STORAGE (fallback locale)
-========================= */
-const LS_KEYS = {
-  inventory: "gp3d_inventory_v1",
-  orders: "gp3d_orders_v1",
-  settings: "gp3d_settings_v1",
-};
-
-const ORDER_CLEANUP_HOURS = 24;
-
-function nowISO() { return new Date().toISOString(); }
-function fmtMoney(n){ return (Number(n || 0)).toFixed(2); }
-function toDateInputValue(d){
-  const dt = new Date(d);
-  const yyyy = dt.getFullYear();
-  const mm = String(dt.getMonth()+1).padStart(2,"0");
-  const dd = String(dt.getDate()).padStart(2,"0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-function sameDay(a, b){
-  const da = new Date(a), db = new Date(b);
-  return da.getFullYear()===db.getFullYear() && da.getMonth()===db.getMonth() && da.getDate()===db.getDate();
-}
-function monthKey(d){
-  const dt = new Date(d);
-  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-}
-
-async function lsGet(key, fallback){
-  try{
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  }catch{
-    return fallback;
+  function fmtDate(ts){
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
   }
-}
-async function lsSet(key, value){
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-/* =========================
-   TOAST
-========================= */
-const toastEl = document.getElementById("toast");
-const toastMsgEl = document.getElementById("toastMsg");
-const toastCloseEl = document.getElementById("toastClose");
-if (toastCloseEl) toastCloseEl.addEventListener("click", () => hideToast());
-
-let toastTimer = null;
-function showToast(msg){
-  if (!toastEl || !toastMsgEl) return;
-  toastMsgEl.textContent = msg;
-  toastEl.classList.remove("hidden");
-  if(toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => hideToast(), 2500);
-}
-function hideToast(){
-  if (!toastEl) return;
-  toastEl.classList.add("hidden");
-}
-
-/* =========================
-   BADGE
-========================= */
-function updateSyncBadge(){
-  const badge = document.getElementById("syncBadge");
-  if(!badge) return;
-  badge.innerHTML = supabaseEnabled ? `Storage: <strong>Supabase</strong>` : `Storage: <strong>Local</strong>`;
-}
-
-/* =========================
-   HELPERS
-========================= */
-function escapeHtml(str){
-  return String(str)
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-
-/* =========================
-   DB LAYER - INVENTORY
-========================= */
-async function dbInventoryList(){
-  if(!supabaseEnabled) return await lsGet(LS_KEYS.inventory, []);
-  const { data, error } = await supabase.from("inventory").select("*").order("code", { ascending:true });
-  if(error){ showToast("Errore Supabase inventory"); return []; }
-  return (data || []).map(r => ({ id:r.id, code:r.code, qty:r.qty, updated_at:r.updated_at }));
-}
-
-async function dbInventoryUpsert(code, qty){
-  if(!supabaseEnabled){
-    const inv = await lsGet(LS_KEYS.inventory, []);
-    const idx = inv.findIndex(x => x.code.toLowerCase() === code.toLowerCase());
-    const item = { id: idx>=0 ? inv[idx].id : crypto.randomUUID(), code, qty:Number(qty), updated_at: nowISO() };
-    if(idx>=0) inv[idx] = item; else inv.push(item);
-    await lsSet(LS_KEYS.inventory, inv);
-    return item;
+  function euro(v){
+    const n = Number(v || 0);
+    return n.toLocaleString("it-IT",{style:"currency",currency:"EUR"});
   }
-  const payload = { code, qty: Number(qty), updated_at: nowISO() };
-  const { data, error } = await supabase
-    .from("inventory")
-    .upsert(payload, { onConflict: "code" })
-    .select("*")
-    .single();
-  if(error){ showToast("Errore salvataggio Supabase"); return null; }
-  return data;
-}
-
-async function dbInventoryDeleteById(id){
-  if(!supabaseEnabled){
-    const inv = await lsGet(LS_KEYS.inventory, []);
-    await lsSet(LS_KEYS.inventory, inv.filter(x => x.id !== id));
-    return true;
+  function escapeHtml(s){
+    return String(s ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
   }
-  const { error } = await supabase.from("inventory").delete().eq("id", id);
-  if(error){ showToast("Errore eliminazione Supabase"); return false; }
-  return true;
-}
-
-/* =========================
-   DB LAYER - ORDERS
-========================= */
-async function dbOrdersList(){
-  if(!supabaseEnabled) return await lsGet(LS_KEYS.orders, []);
-  const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending:false });
-  if(error){ showToast("Errore Supabase orders"); return []; }
-  return (data || []).map(o => ({
-    id:o.id,
-    created_at:o.created_at,
-    channel:o.channel,
-    total:o.total,
-    status:o.status,
-    status_changed_at:o.status_changed_at,
-    lines:o.lines || [],
-  }));
-}
-
-async function dbOrderInsert(order){
-  if(!supabaseEnabled){
-    const orders = await lsGet(LS_KEYS.orders, []);
-    const item = { ...order, id: crypto.randomUUID() };
-    orders.unshift(item);
-    await lsSet(LS_KEYS.orders, orders);
-    return item;
+  function uid(){
+    return "ord_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
   }
-  const { data, error } = await supabase.from("orders").insert(order).select("*").single();
-  if(error){ showToast("Errore inserimento ordine Supabase"); return null; }
-  return data;
-}
-
-async function dbOrderUpdateStatus(id, status){
-  const status_changed_at = nowISO();
-  if(!supabaseEnabled){
-    const orders = await lsGet(LS_KEYS.orders, []);
-    const idx = orders.findIndex(o => o.id === id);
-    if(idx<0) return false;
-    orders[idx].status = status;
-    orders[idx].status_changed_at = status_changed_at;
-    await lsSet(LS_KEYS.orders, orders);
-    return true;
+  function withinHours(ts,h){
+    return (now()-ts) <= h*60*60*1000;
   }
-  const { error } = await supabase.from("orders").update({ status, status_changed_at }).eq("id", id);
-  if(error){ showToast("Errore update status Supabase"); return false; }
-  return true;
-}
-
-/* =========================
-   SETTINGS (solo locale)
-========================= */
-async function settingsGet(){
-  return await lsGet(LS_KEYS.settings, { deletePass: "1234" });
-}
-async function settingsSet(s){
-  await lsSet(LS_KEYS.settings, s);
-}
-
-/* =========================
-   TABS
-========================= */
-document.querySelectorAll(".tab").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    const t = btn.dataset.tab;
-    document.querySelectorAll("main section").forEach(sec => sec.classList.add("hidden"));
-    document.getElementById(`tab-${t}`).classList.remove("hidden");
-  });
-});
-
-/* =========================
-   MAGAZZINO UI
-========================= */
-const invTbody = document.getElementById("invTbody");
-const invSearch = document.getElementById("invSearch");
-let invSelectedId = null;
-
-function invRowTemplate(item){
-  const tr = document.createElement("tr");
-  if(Number(item.qty) === 0) tr.classList.add("rowZero");
-  const updated = item.updated_at ? new Date(item.updated_at).toLocaleString() : "-";
-  tr.innerHTML = `
-    <td class="center"><input type="radio" name="invSel"></td>
-    <td>${escapeHtml(item.code)}</td>
-    <td class="right">${Number(item.qty)}</td>
-    <td>${updated}</td>
-  `;
-  tr.querySelector('input[type="radio"]').addEventListener("change", () => {
-    invSelectedId = item.id;
-  });
-  return tr;
-}
-
-async function renderInventory(){
-  const list = await dbInventoryList();
-  const q = (invSearch?.value || "").trim().toLowerCase();
-  const filtered = q ? list.filter(x => (x.code||"").toLowerCase().includes(q)) : list;
-
-  invTbody.innerHTML = "";
-  invSelectedId = null;
-  filtered.forEach(item => invTbody.appendChild(invRowTemplate(item)));
-}
-
-document.getElementById("btnInvRefresh").addEventListener("click", renderInventory);
-invSearch.addEventListener("input", renderInventory);
-
-document.getElementById("btnInvSave").addEventListener("click", async () => {
-  const code = (document.getElementById("invCode").value || "").trim();
-  const qty = Number(document.getElementById("invQty").value);
-
-  if(!code){ showToast("Inserisci un codice"); return; }
-  if(!Number.isFinite(qty) || qty < 0){ showToast("Quantità non valida"); return; }
-
-  await dbInventoryUpsert(code, qty);
-  document.getElementById("invCode").value = "";
-  document.getElementById("invQty").value = "1";
-  await renderInventory();
-  showToast("Salvato");
-});
-
-document.getElementById("btnInvDeleteSelected").addEventListener("click", async () => {
-  if(!invSelectedId){ showToast("Seleziona una riga"); return; }
-  const s = await settingsGet();
-  const pass = prompt("Password eliminazione:");
-  if(pass === null) return;
-  if(pass !== s.deletePass){ showToast("Password errata"); return; }
-
-  const ok = await dbInventoryDeleteById(invSelectedId);
-  if(ok){
-    await renderInventory();
-    showToast("Eliminato");
+  function withinDays(ts,d){
+    return (now()-ts) <= d*24*60*60*1000;
   }
-});
 
-document.getElementById("btnInvExport").addEventListener("click", async () => {
-  const list = await dbInventoryList();
-  const blob = new Blob([JSON.stringify(list, null, 2)], { type:"application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "magazzino.json";
-  a.click();
-  URL.revokeObjectURL(url);
-});
-
-/* =========================
-   ORDINI UI
-========================= */
-const orderLinesTbody = document.getElementById("orderLinesTbody");
-const ordersTbody = document.getElementById("ordersTbody");
-
-function addOrderLine(code="", qty=1){
-  const tr = document.createElement("tr");
-  tr.innerHTML = `
-    <td><input class="ol-code" placeholder="CODICE" autocomplete="off" value="${escapeHtml(code)}"></td>
-    <td class="right"><input class="ol-qty" type="number" min="1" step="1" value="${Number(qty)}"></td>
-    <td class="center"><button class="btn danger ol-del" type="button">X</button></td>
-  `;
-  tr.querySelector(".ol-del").addEventListener("click", () => tr.remove());
-  orderLinesTbody.appendChild(tr);
-  return tr;
-}
-
-function getOrderLines(){
-  const rows = [...orderLinesTbody.querySelectorAll("tr")];
-  const lines = [];
-  for(const r of rows){
-    const code = (r.querySelector(".ol-code").value || "").trim();
-    const qty = Number(r.querySelector(".ol-qty").value);
-    if(!code) continue;
-    if(!Number.isFinite(qty) || qty <= 0) continue;
-    lines.push({ code, qty });
-  }
-  return lines;
-}
-
-function setupOrderKeyboard(){
-  orderLinesTbody.addEventListener("keydown", (e) => {
-    const tr = e.target.closest("tr");
-    if(!tr) return;
-
-    const rows = [...orderLinesTbody.querySelectorAll("tr")];
-    const idx = rows.indexOf(tr);
-
-    if(e.key === "Enter" && !e.ctrlKey){
-      e.preventDefault();
-      const newRow = addOrderLine("", 1);
-      newRow.querySelector(".ol-code").focus();
-      return;
+  function loadOrders(){
+    try{
+      const raw = localStorage.getItem(LS_KEY);
+      const data = raw ? JSON.parse(raw) : [];
+      return Array.isArray(data) ? data : [];
+    }catch{
+      return [];
     }
+  }
+  function saveOrders(arr){
+    localStorage.setItem(LS_KEY, JSON.stringify(arr));
+  }
 
-    if(e.key === "Enter" && e.ctrlKey){
-      e.preventDefault();
-      document.getElementById("btnSaveOrder").click();
-      return;
-    }
+  function updateOrder(id, patch){
+    const orders = loadOrders();
+    const i = orders.findIndex(o => o.id === id);
+    if(i === -1) return;
+    orders[i] = { ...orders[i], ...patch, updatedAt: now() };
+    saveOrders(orders);
+    rerender();
+  }
 
-    if(e.key === "ArrowUp"){
-      e.preventDefault();
-      const prev = rows[Math.max(0, idx-1)];
-      if(prev) prev.querySelector(".ol-code").focus();
-      return;
-    }
-    if(e.key === "ArrowDown"){
-      e.preventDefault();
-      const next = rows[Math.min(rows.length-1, idx+1)];
-      if(next) next.querySelector(".ol-code").focus();
-      return;
-    }
-  });
-}
+  function cleanupActiveCompleted24h(){
+    // questa “pulizia” serve solo per non intasare: i completati vecchi restano in DB,
+    // ma nella tabella “attivi” non li mostriamo oltre 24h (gestito già dal filtro).
+    // Qui non cancelliamo nulla per non perdere vendite.
+  }
 
-document.getElementById("btnAddLine").addEventListener("click", () => {
-  const tr = addOrderLine("", 1);
-  tr.querySelector(".ol-code").focus();
-});
-
-document.getElementById("btnClearOrder").addEventListener("click", () => {
-  document.getElementById("ordTotal").value = "";
-  orderLinesTbody.innerHTML = "";
-  addOrderLine("", 1).querySelector(".ol-code").focus();
-});
-
-document.getElementById("btnSaveOrder").addEventListener("click", async () => {
-  const channel = document.getElementById("ordChannel").value;
-  const total = Number(document.getElementById("ordTotal").value || 0);
-  const lines = getOrderLines();
-
-  if(lines.length === 0){ showToast("Inserisci almeno 1 riga con codice"); return; }
-  if(!Number.isFinite(total) || total < 0){ showToast("Incasso non valido"); return; }
-
-  const order = {
-    created_at: nowISO(),
-    channel,
-    total: Number(total),
-    status: "open",
-    status_changed_at: null,
-    lines,
+  // ------------------ NAV (tab) ------------------
+  window.showNew = function showNew(){
+    $("page-new").classList.remove("hide");
+    $("page-prep").classList.add("hide");
+    $("page-sales").classList.add("hide");
+    refreshActiveTable();
   };
 
-  const saved = await dbOrderInsert(order);
-  if(!saved) return;
+  window.showPrep = function showPrep(){
+    $("page-new").classList.add("hide");
+    $("page-prep").classList.remove("hide");
+    $("page-sales").classList.add("hide");
+    renderBoard();
+  };
 
-  // scala magazzino SOLO se il codice esiste già
-  const inv = await dbInventoryList();
-  for(const l of lines){
-    const found = inv.find(x => x.code.toLowerCase() === l.code.toLowerCase());
-    if(found){
-      const newQty = Math.max(0, Number(found.qty) - Number(l.qty));
-      await dbInventoryUpsert(found.code, newQty);
+  function showSales(){
+    $("page-new").classList.add("hide");
+    $("page-prep").classList.add("hide");
+    $("page-sales").classList.remove("hide");
+    refreshSales();
+  }
+
+  window.openSales = function openSales(){
+    const unlocked = localStorage.getItem(SALES_UNLOCK_KEY) === "1";
+    if(!unlocked){
+      const pw = prompt("Password Vendite:");
+      if(pw !== SALES_PASSWORD){
+        alert("Password errata.");
+        return;
+      }
+      localStorage.setItem(SALES_UNLOCK_KEY,"1");
+    }
+    window.setActive?.("sales");
+    showSales();
+  };
+
+  window.lockSales = function lockSales(){
+    localStorage.removeItem(SALES_UNLOCK_KEY);
+    alert("Vendite bloccate.");
+    window.setActive?.("new");
+    window.showNew();
+  };
+
+  // ------------------ NUOVO ORDINE ------------------
+  window.addOrder = function addOrder(){
+    const cliente = ($("cliente").value || "").trim();
+    const sito = ($("sito").value || "").trim();
+    const articolo = ($("progetto").value || "").trim();
+    const prezzo = Number($("prezzo").value || 0);
+    const note = ($("note").value || "").trim();
+
+    if(!cliente){ alert("Inserisci Cliente."); return; }
+    if(!sito){ alert("Inserisci Sito vendita."); return; }
+    if(!articolo){ alert("Inserisci Numero progetto (ARTICOLO)."); return; }
+
+    const ts = now();
+    const orders = loadOrders();
+
+    const existsActive = orders.some(o => o.articolo === articolo && o.status !== "Completato");
+    if(existsActive){
+      if(!confirm("Esiste già un ordine attivo con lo stesso ARTICOLO. Vuoi inserirlo lo stesso?")) return;
+    }
+
+    orders.unshift({
+      id: uid(),
+      articolo,
+      cliente,
+      sito,
+      prezzo: isFinite(prezzo) ? prezzo : 0,
+      note,
+      status: "Ricevuto",
+      createdAt: ts,
+      updatedAt: ts,
+      frontOk: false,
+      backOk: false
+    });
+
+    saveOrders(orders);
+
+    $("cliente").value = "";
+    $("sito").value = "";
+    $("progetto").value = "";
+    $("prezzo").value = "";
+    $("note").value = "";
+
+    refreshActiveTable();
+    alert("Ordine inserito in Produzione.");
+  };
+
+  // ------------------ TABELLA ATTIVI ------------------
+  window.refreshActiveTable = function refreshActiveTable(){
+    const tbody = $("activeTbody");
+    if(!tbody) return;
+
+    const orders = loadOrders();
+
+    // attivi = non completati + completati ultime 24h
+    const list = orders.filter(o => o.status !== "Completato" || withinHours(o.updatedAt||o.createdAt, 24));
+
+    tbody.innerHTML = "";
+
+    if(!list.length){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="7" class="muted">Nessun ordine.</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    for(const o of list){
+      const pillClass =
+        o.status === "Completato" ? "ok" :
+        o.status === "Assemblaggio" ? "info" :
+        o.status === "Controllo Qualità" ? "warn" : "";
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><b>${escapeHtml(o.articolo)}</b></td>
+        <td>${escapeHtml(o.cliente)}</td>
+        <td>${escapeHtml(o.sito)}</td>
+        <td>${euro(o.prezzo)}</td>
+        <td><span class="pill ${pillClass}">${escapeHtml(o.status)}</span></td>
+        <td>${fmtDateTime(o.createdAt)}</td>
+        <td>${fmtDateTime(o.updatedAt||o.createdAt)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  };
+
+  // ------------------ BOARD PRODUZIONE ------------------
+  function canMoveToAssemblaggio(o){
+    return !!o.frontOk && !!o.backOk;
+  }
+  function nextStatus(st){
+    const i = STATUSES.indexOf(st);
+    return STATUSES[Math.min(i+1, STATUSES.length-1)];
+  }
+  function prevStatus(st){
+    const i = STATUSES.indexOf(st);
+    return STATUSES[Math.max(i-1, 0)];
+  }
+  function cssSafe(s){
+    return s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9\-]/g,"");
+  }
+
+  function renderBoard(){
+    const board = $("board");
+    if(!board) return;
+
+    const orders = loadOrders().filter(o => o.status !== "Completato");
+
+    const groups = {};
+    for(const st of STATUSES) groups[st] = [];
+    for(const o of orders) (groups[o.status] ||= []).push(o);
+
+    board.innerHTML = "";
+
+    for(const st of STATUSES){
+      if(st === "Completato") continue;
+
+      const items = (groups[st] || []).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+
+      const col = document.createElement("div");
+      col.className = "col";
+      col.innerHTML = `
+        <h2><span>${st}</span> <span class="count">${items.length}</span></h2>
+        <div id="col-${cssSafe(st)}"></div>
+      `;
+      board.appendChild(col);
+
+      const holder = col.querySelector(`#col-${cssSafe(st)}`);
+
+      if(!items.length){
+        holder.innerHTML = `<div class="muted">Vuoto</div>`;
+        continue;
+      }
+
+      for(const o of items){
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const frontPill = o.frontOk ? `<span class="pill ok">Frontale OK</span>` : `<span class="pill warn">Frontale NO</span>`;
+        const backPill  = o.backOk  ? `<span class="pill ok">Posteriore OK</span>` : `<span class="pill warn">Posteriore NO</span>`;
+
+        const warnAsm = (st === "Controllo Qualità" && !canMoveToAssemblaggio(o))
+          ? `<div class="muted" style="margin-top:8px">Per andare in <b>Assemblaggio</b> servono <b>Frontale OK</b> + <b>Posteriore OK</b>.</div>`
+          : "";
+
+        card.innerHTML = `
+          <div class="title">${escapeHtml(o.articolo)} <span class="muted">• ${escapeHtml(o.sito)}</span></div>
+          <div class="meta">
+            <div><b>Cliente:</b> ${escapeHtml(o.cliente)}</div>
+            <div><b>Prezzo:</b> ${euro(o.prezzo)} ${o.note ? `• <b>Note:</b> ${escapeHtml(o.note)}` : ""}</div>
+            <div><b>Creato:</b> ${fmtDateTime(o.createdAt)} • <b>Agg:</b> ${fmtDateTime(o.updatedAt||o.createdAt)}</div>
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${frontPill}${backPill}</div>
+          </div>
+
+          <div class="actions">
+            <button class="small" data-a="front">Segna Frontale OK</button>
+            <button class="small" data-a="back">Segna Posteriore OK</button>
+            <button class="small" data-a="prev">← Indietro</button>
+            <button class="small ok" data-a="next">Avanti →</button>
+            <button class="small done" data-a="done">Completato ✅</button>
+            <button class="small danger" data-a="del">Elimina</button>
+          </div>
+          ${warnAsm}
+        `;
+
+        card.querySelector(`[data-a="front"]`).onclick = () => updateOrder(o.id, { frontOk: true });
+        card.querySelector(`[data-a="back"]`).onclick  = () => updateOrder(o.id, { backOk: true });
+
+        card.querySelector(`[data-a="prev"]`).onclick = () => {
+          updateOrder(o.id, { status: prevStatus(o.status) });
+        };
+
+        card.querySelector(`[data-a="next"]`).onclick = () => {
+          const target = nextStatus(o.status);
+          if(target === "Assemblaggio" && !canMoveToAssemblaggio(o)){
+            alert("Non puoi spostare in Assemblaggio: servono Frontale OK + Posteriore OK.");
+            return;
+          }
+          updateOrder(o.id, { status: target });
+        };
+
+        card.querySelector(`[data-a="done"]`).onclick = () => {
+          if(!confirm("Segnare come COMPLETATO? Andrà nelle Vendite.")) return;
+          updateOrder(o.id, { status: "Completato" });
+        };
+
+        card.querySelector(`[data-a="del"]`).onclick = () => {
+          if(!confirm("Eliminare definitivamente questo ordine?")) return;
+          const orders2 = loadOrders().filter(x => x.id !== o.id);
+          saveOrders(orders2);
+          rerender();
+        };
+
+        holder.appendChild(card);
+      }
     }
   }
 
-  document.getElementById("btnClearOrder").click();
-  await refreshOrders();
-  await renderInventory();
-  showToast("Ordine salvato");
-});
+  // ------------------ VENDITE ------------------
+  window.refreshSales = function refreshSales(){
+    const wrap = $("salesWrap");
+    if(!wrap) return;
 
-document.getElementById("btnOrdersRefresh").addEventListener("click", refreshOrders);
-document.getElementById("ordersFilter").addEventListener("change", refreshOrders);
+    const orders = loadOrders()
+      .filter(o => o.status === "Completato")
+      .filter(o => withinDays(o.updatedAt||o.createdAt, 365));
 
-function statusPill(status){
-  if(status === "done") return `<span class="pill done">Completato</span>`;
-  if(status === "cancelled") return `<span class="pill cancel">Annullato</span>`;
-  return `<span class="pill open">Aperto</span>`;
-}
+    // group by day
+    const map = new Map();
+    for(const o of orders){
+      const day = fmtDate(o.updatedAt||o.createdAt);
+      if(!map.has(day)) map.set(day, []);
+      map.get(day).push(o);
+    }
 
-async function cleanupOrders(orders){
-  // su Supabase non cancello niente automaticamente (eviti sorprese)
-  if(supabaseEnabled) return orders;
+    const days = Array.from(map.keys()).sort((a,b)=> a<b ? 1 : -1);
 
-  const limitMs = ORDER_CLEANUP_HOURS * 60 * 60 * 1000;
-  const now = Date.now();
+    if(!days.length){
+      wrap.innerHTML = `<div class="muted">Nessuna vendita completata negli ultimi 365 giorni.</div>`;
+      return;
+    }
 
-  const cleaned = orders.filter(o => {
-    if(o.status !== "done") return true;
-    if(!o.status_changed_at) return true;
-    return (now - new Date(o.status_changed_at).getTime()) < limitMs;
-  });
+    let html = "";
+    for(const day of days){
+      const items = map.get(day).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+      const total = items.reduce((s,o)=> s + Number(o.prezzo||0), 0);
 
-  if(cleaned.length !== orders.length){
-    await lsSet(LS_KEYS.orders, cleaned);
+      html += `
+        <div class="panel" style="margin-bottom:10px">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <b>${day}</b>
+            <span class="pill ok">Totale: ${euro(total)}</span>
+          </div>
+          <table>
+            <thead>
+              <tr><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th><th>Completato</th></tr>
+            </thead>
+            <tbody>
+              ${items.map(o => `
+                <tr>
+                  <td><b>${escapeHtml(o.articolo)}</b></td>
+                  <td>${escapeHtml(o.cliente)}</td>
+                  <td>${escapeHtml(o.sito)}</td>
+                  <td>${euro(o.prezzo)}</td>
+                  <td>${fmtDateTime(o.updatedAt||o.createdAt)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    wrap.innerHTML = html;
+  };
+
+  function csvCell(v){
+    const s = String(v ?? "");
+    return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
   }
-  return cleaned;
-}
-
-async function refreshOrders(){
-  let orders = await dbOrdersList();
-  orders = await cleanupOrders(orders);
-
-  const filter = document.getElementById("ordersFilter").value;
-  let view = orders;
-
-  if(filter !== "all"){
-    view = orders.filter(o => o.status === filter);
-  }
-
-  ordersTbody.innerHTML = "";
-  view.forEach(o => {
-    const tr = document.createElement("tr");
-    const dt = new Date(o.created_at).toLocaleString();
-    tr.innerHTML = `
-      <td>${dt}</td>
-      <td>${escapeHtml(o.channel)}</td>
-      <td class="right">${fmtMoney(o.total)}</td>
-      <td>${statusPill(o.status)}</td>
-      <td class="center">
-        <button class="btn ok okBtn" type="button">✓</button>
-        <button class="btn danger cancelBtn" type="button">X</button>
-      </td>
-    `;
-    tr.querySelector(".okBtn").addEventListener("click", async () => {
-      await dbOrderUpdateStatus(o.id, "done");
-      await refreshOrders();
-      showToast("Ordine completato");
-    });
-    tr.querySelector(".cancelBtn").addEventListener("click", async () => {
-      await dbOrderUpdateStatus(o.id, "cancelled");
-      await refreshOrders();
-      showToast("Ordine annullato");
-    });
-    ordersTbody.appendChild(tr);
-  });
-}
-
-/* =========================
-   REPORT
-========================= */
-document.getElementById("repMode").addEventListener("change", () => {
-  const mode = document.getElementById("repMode").value;
-  const day = document.getElementById("repDay");
-  day.classList.toggle("hidden", mode !== "daypick");
-});
-
-document.getElementById("btnRepRun").addEventListener("click", runReport);
-
-async function runReport(){
-  const mode = document.getElementById("repMode").value;
-  const repDay = document.getElementById("repDay").value;
-
-  const orders = (await dbOrdersList()).filter(o => o.status === "done");
-
-  let filtered = orders;
-
-  if(mode === "daily"){
-    const today = new Date();
-    filtered = orders.filter(o => sameDay(o.created_at, today));
-  } else if(mode === "monthly"){
-    const mk = monthKey(new Date());
-    filtered = orders.filter(o => monthKey(o.created_at) === mk);
-  } else if(mode === "daypick"){
-    if(!repDay){ showToast("Seleziona un giorno"); return; }
-    const pick = new Date(repDay + "T00:00:00");
-    filtered = orders.filter(o => sameDay(o.created_at, pick));
+  function downloadCsv(filename, rows){
+    const csv = rows.map(r => r.map(csvCell).join(",")).join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
-  const total = filtered.reduce((s, o) => s + Number(o.total || 0), 0);
-  document.getElementById("repTotal").textContent = fmtMoney(total);
-  document.getElementById("repCount").textContent = String(filtered.length);
-
-  const map = new Map();
-  for(const o of filtered){
-    const key = o.channel || "Sconosciuto";
-    const prev = map.get(key) || { sum:0, count:0 };
-    prev.sum += Number(o.total || 0);
-    prev.count += 1;
-    map.set(key, prev);
+  function completedOrders365(){
+    return loadOrders()
+      .filter(o => o.status === "Completato")
+      .filter(o => withinDays(o.updatedAt||o.createdAt, 365));
   }
 
-  const repByChannel = document.getElementById("repByChannel");
-  repByChannel.innerHTML = "";
-  [...map.entries()].sort((a,b) => b[1].sum - a[1].sum).forEach(([ch, v]) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${escapeHtml(ch)}</td><td class="right">${fmtMoney(v.sum)}</td><td class="right">${v.count}</td>`;
-    repByChannel.appendChild(tr);
-  });
+  window.downloadSalesDaily = function downloadSalesDaily(){
+    const today = fmtDate(now());
+    const items = completedOrders365().filter(o => fmtDate(o.updatedAt||o.createdAt) === today);
+    if(!items.length){ alert("Nessuna vendita completata oggi."); return; }
 
-  const repOrders = document.getElementById("repOrders");
-  repOrders.innerHTML = "";
-  filtered
-    .slice()
-    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
-    .forEach(o => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${new Date(o.created_at).toLocaleString()}</td><td>${escapeHtml(o.channel)}</td><td class="right">${fmtMoney(o.total)}</td>`;
-      repOrders.appendChild(tr);
-    });
+    const rows = [
+      ["Giorno","Articolo","Cliente","Sito","Prezzo","Creato","Completato","Note"],
+      ...items.map(o => [
+        today,
+        o.articolo,
+        o.cliente,
+        o.sito,
+        o.prezzo,
+        fmtDateTime(o.createdAt),
+        fmtDateTime(o.updatedAt||o.createdAt),
+        o.note || ""
+      ])
+    ];
+    downloadCsv(`vendite_${today}.csv`, rows);
+  };
 
-  showToast("Report aggiornato");
-}
+  window.downloadSalesMonthly = function downloadSalesMonthly(){
+    const d = new Date();
+    const ym = `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
+    const items = completedOrders365().filter(o => fmtDate(o.updatedAt||o.createdAt).startsWith(ym));
+    if(!items.length){ alert("Nessuna vendita completata in questo mese."); return; }
 
-/* =========================
-   IMPOSTAZIONI
-========================= */
-document.getElementById("btnSavePass").addEventListener("click", async () => {
-  const pass = document.getElementById("setDeletePass").value;
-  if(!pass || pass.length < 2){ showToast("Password troppo corta"); return; }
-  const s = await settingsGet();
-  s.deletePass = pass;
-  await settingsSet(s);
-  document.getElementById("setDeletePass").value = "";
-  showToast("Password salvata");
-});
+    const rows = [
+      ["Giorno","Articolo","Cliente","Sito","Prezzo","Creato","Completato","Note"],
+      ...items.map(o => [
+        fmtDate(o.updatedAt||o.createdAt),
+        o.articolo,
+        o.cliente,
+        o.sito,
+        o.prezzo,
+        fmtDateTime(o.createdAt),
+        fmtDateTime(o.updatedAt||o.createdAt),
+        o.note || ""
+      ])
+    ];
+    downloadCsv(`vendite_${ym}.csv`, rows);
+  };
 
-document.getElementById("btnResetPass").addEventListener("click", async () => {
-  await settingsSet({ deletePass: "1234" });
-  showToast("Password resettata a 1234");
-});
+  // ------------------ RENDER ------------------
+  function rerender(){
+    const newVisible = !$("page-new").classList.contains("hide");
+    const prepVisible = !$("page-prep").classList.contains("hide");
+    const salesVisible = !$("page-sales").classList.contains("hide");
 
-document.getElementById("btnTestSupabase").addEventListener("click", async () => {
-  if(!supabaseEnabled){ showToast("Supabase NON configurato"); return; }
-  const { error } = await supabase.from("inventory").select("id").limit(1);
-  if(error){ showToast("Connessione OK ma tabella/policy manca"); return; }
-  showToast("Connessione Supabase OK ✅");
-});
+    if(newVisible) refreshActiveTable();
+    if(prepVisible) renderBoard();
+    if(salesVisible) refreshSales();
+  }
 
-/* =========================
-   RICARICA
-========================= */
-document.getElementById("btnReload").addEventListener("click", async () => {
-  await refreshAll();
-  showToast("Ricaricato");
-});
+  // ------------------ INIT ------------------
+  function init(){
+    cleanupActiveCompleted24h();
+    window.setActive?.("new");
+    window.showNew();
+    setInterval(() => rerender(), 30_000);
+  }
 
-/* =========================
-   AVVIO
-========================= */
-async function refreshAll(){
-  await renderInventory();
-  await refreshOrders();
-  document.getElementById("repDay").value = toDateInputValue(new Date());
-}
-
-(function boot(){
-  initSupabase();
-
-  // setup righe ordine
-  orderLinesTbody.innerHTML = "";
-  addOrderLine("", 1);
-  setupOrderKeyboard();
-
-  // default date picker
-  document.getElementById("repDay").value = toDateInputValue(new Date());
-
-  refreshAll();
+  document.addEventListener("DOMContentLoaded", init);
 })();
