@@ -1,158 +1,608 @@
-<!doctype html>
-<html lang="it">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Ordini 3D - Lab</title>
+/* =========================
+   ORDINI 3D - LAB (FULL + MULTI-PROGETTO)
+   - colori colonne
+   - tabella "ordini attivi" aggiornata
+   - pagina Vendite protetta (0000)
+   - MULTI PROGETTO: + Aggiungi progetto (crea più ordini con stesso cliente/sito/note)
+   - XSS safe (escape HTML)
+   ========================= */
 
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f6f7fb;color:#111}
-    header{position:sticky;top:0;background:#fff;padding:12px 14px;border-bottom:1px solid #e6e7ee;z-index:5}
-    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    h1{font-size:16px;margin:0}
-    input,button,textarea{padding:10px;border:1px solid #d9dbe7;border-radius:10px;background:#fff;font-size:14px}
-    textarea{min-height:44px;resize:vertical;width:100%}
-    button{cursor:pointer}
-    .wrap{padding:12px}
-    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
-    .tab{padding:8px 10px;border:1px solid #d9dbe7;border-radius:999px;background:#fff;cursor:pointer;font-size:13px}
-    .tab.active{border-color:#b9c3ff}
-    .panel{background:#fff;border:1px solid #e6e7ee;border-radius:12px;padding:12px}
-    .label{font-size:12px;color:#555;margin:6px 0 4px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    @media(max-width:900px){.grid2{grid-template-columns:1fr}}
-    .hide{display:none}
+const LS_KEY = "ordini3d_orders_v4";
 
-    .board{display:grid;grid-template-columns:repeat(6,minmax(220px,1fr));gap:10px;align-items:start}
-    @media (max-width: 1200px){ .board{grid-template-columns:repeat(2,minmax(220px,1fr));} }
-    @media (max-width: 640px){ .board{grid-template-columns:1fr;} }
+/* ---------- LOAD/SAVE ---------- */
+function loadOrders() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
+  catch { return []; }
+}
+let orders = loadOrders();
+function saveOrders() {
+  localStorage.setItem(LS_KEY, JSON.stringify(orders));
+}
 
-    .col{background:#fff;border:1px solid #e6e7ee;border-radius:12px;padding:10px}
-    .col h2{font-size:14px;margin:0 0 8px 0;display:flex;justify-content:space-between;align-items:center}
-    .count{font-size:12px;color:#666}
-    .card{border:1px solid #e6e7ee;border-radius:12px;padding:10px;margin:8px 0;background:#fff}
-    .title{font-weight:700;font-size:14px;margin:0 0 6px 0}
-    .meta{font-size:12px;color:#444;line-height:1.35}
-    .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-    .small{padding:7px 9px;border-radius:10px;font-size:12px}
-    .ok{border-color:#cfe9d6;background:#f4fff7}
-    .danger{border-color:#ffd0d0;background:#fff5f5}
-    .done{border-color:#33c26b;background:#dfffe6}
-    .muted{color:#666;font-size:12px}
+/* ---------- FLOW ---------- */
+const FLOW = {
+  PREPARAZIONE: "PREPARAZIONE",
+  ASSEMBLAGGIO: "ASSEMBLAGGIO",
+  SPEDIZIONE: "SPEDIZIONE",
+  COMPLETATO: "COMPLETATO",
+};
 
-    table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
-    th,td{font-size:12px;text-align:left;padding:10px;border-top:1px solid #eef0f6}
-    thead th{font-size:12px;color:#555;border-top:none}
-    tbody tr:hover{background:#fafbff}
-    .pill{display:inline-block;font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid #e6e7ee;color:#444;background:#fff}
-    .pill.ok{border-color:#cfe9d6;background:#f4fff7}
-    .pill.warn{border-color:#ffe3b7;background:#fff8e8}
-    .pill.info{border-color:#d8e6ff;background:#f2f7ff}
-  </style>
-</head>
+/* ---------- COLONNE + COLORI ---------- */
+const COLS = [
+  { id: "PREP",         title: "🟡 Preparazione",      bg: "#fff7cc", border: "#f1d36a" },
+  { id: "FRONTALE",     title: "🔵 Stampa frontale",   bg: "#e8f2ff", border: "#7fb0ff" },
+  { id: "POSTERIORE",   title: "🟠 Stampa posteriore", bg: "#ffe9dc", border: "#ffb184" },
+  { id: "ASSEMBLAGGIO", title: "🟣 Assemblaggio",      bg: "#f3e8ff", border: "#b68cff" },
+  { id: "SPEDIZIONE",   title: "🟤 Spedizione",        bg: "#f1efe9", border: "#cbbfa6" },
+  { id: "COMPLETATO",   title: "🟢 Completato",        bg: "#dfffe6", border: "#33c26b" },
+];
 
-<body>
-<header>
-  <div class="row">
-    <h1>Ordini 3D - Laboratorio</h1>
-    <div class="tabs">
-      <button class="tab active" id="tab-new" onclick="showNew()">Nuovo ordine</button>
-      <button class="tab" id="tab-prep" onclick="showPrep()">Produzione</button>
-      <button class="tab" id="tab-sales" onclick="openSales()">Vendite</button>
-    </div>
-  </div>
-</header>
+/* ---------- UTILS ---------- */
+function $(id){ return document.getElementById(id); }
 
-<div class="wrap">
-  <!-- NUOVO ORDINE -->
-  <div id="page-new" class="panel">
-    <div class="grid2">
-      <div>
-        <div class="label">Cliente</div>
-        <input id="cliente" placeholder="Es. Mario Rossi">
-      </div>
-      <div>
-        <div class="label">Sito vendita</div>
-        <input id="sito" placeholder="Etsy / Shopify / WhatsApp">
-      </div>
-      <div>
-        <div class="label">Numero progetto (ARTICOLO)</div>
-        <input id="progetto" placeholder="PRJ-2026-001">
-      </div>
-      <div>
-        <div class="label">Prezzo (€)</div>
-        <input id="prezzo" type="number" step="0.01" placeholder="49.90">
-      </div>
-    </div>
+function pad(n){ return String(n).padStart(2,"0"); }
+function fmtDT(iso){
+  if(!iso) return "-";
+  const d = new Date(iso);
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function dateKey(iso){
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function euro(n){
+  const x = Number(n);
+  return Number.isNaN(x) ? "0.00" : x.toFixed(2);
+}
+function touch(o){
+  o.updatedAt = new Date().toISOString();
+}
+function esc(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
 
-    <!-- MULTI PROGETTO -->
-    <div class="row" style="margin-top:10px">
-      <button class="small ok" onclick="addTempItem()">+ Aggiungi progetto</button>
-      <span class="muted">Aggiunge il progetto alla lista sotto</span>
-    </div>
+/* ---------- TABS ---------- */
+function setActive(which){
+  $("tab-new")?.classList.toggle("active", which==="new");
+  $("tab-prep")?.classList.toggle("active", which==="prep");
+  $("tab-sales")?.classList.toggle("active", which==="sales");
+}
 
-    <div id="tempItemsWrap" style="margin-top:10px"></div>
+/* ---------- NAV / PAGES ---------- */
+function hideAllPages(){
+  ["page-new","page-prep","page-sales"].forEach(id=>{
+    const el = $(id);
+    if(el) el.classList.add("hide");
+  });
+}
 
-    <div style="margin-top:10px">
-      <div class="label">Note ordine (opzionale)</div>
-      <textarea id="note" placeholder="Dettagli utili..."></textarea>
-    </div>
+function showNew(){
+  hideAllPages();
+  $("page-new")?.classList.remove("hide");
+  setActive("new");
+  refreshActiveTable();
+  renderTempItems();
+}
 
-    <div class="row" style="margin-top:10px">
-      <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-      <span class="muted">Ogni progetto verrà creato come ordine separato in Produzione.</span>
-    </div>
+function showPrep(){
+  hideAllPages();
+  $("page-prep")?.classList.remove("hide");
+  setActive("prep");
+  render();
+}
 
-    <div style="margin-top:14px">
+function showSales(){
+  hideAllPages();
+  $("page-sales")?.classList.remove("hide");
+  setActive("sales");
+  refreshSales();
+}
+
+/* =========================================================
+   MULTI PROGETTO (lista temporanea in pagina Nuovo ordine)
+   - Non cambia la struttura degli ordini: crea PIU ORDINI
+     (uno per progetto) con stesso cliente/sito/note.
+   ========================================================= */
+let tempItems = []; // non salvata: se ricarichi pagina si azzera
+
+function addTempItem(){
+  const articolo = $("progetto")?.value.trim();
+  const prezzoRaw = $("prezzo")?.value.trim();
+
+  if(!articolo || !prezzoRaw){
+    alert("Compila Numero progetto e Prezzo, poi premi + Aggiungi progetto.");
+    return;
+  }
+
+  const prezzo = Number(prezzoRaw);
+  if(!Number.isFinite(prezzo)){
+    alert("Prezzo non valido.");
+    return;
+  }
+
+  tempItems.push({
+    id: `${articolo}__${Date.now()}`,
+    articolo,
+    prezzo
+  });
+
+  // pulisci i 2 campi per inserire altri progetti
+  $("progetto").value = "";
+  $("prezzo").value = "";
+
+  renderTempItems();
+}
+
+function removeTempItem(id){
+  tempItems = tempItems.filter(x => x.id !== id);
+  renderTempItems();
+}
+
+function clearTempItems(){
+  tempItems = [];
+  renderTempItems();
+}
+
+function renderTempItems(){
+  const wrap = $("tempItemsWrap");
+  if(!wrap) return;
+
+  if(tempItems.length === 0){
+    wrap.innerHTML = `<div class="muted">Nessun progetto aggiunto in lista (puoi inviare anche solo quello nei campi sopra).</div>`;
+    return;
+  }
+
+  const total = tempItems.reduce((s,x)=>s + (Number(x.prezzo)||0), 0);
+
+  wrap.innerHTML = `
+    <div class="panel">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <b>Ordini attivi</b>
-        <button class="small" onclick="refreshActiveTable()">Aggiorna</button>
+        <b>Progetti in lista</b>
+        <span class="pill info">Righe: ${tempItems.length} • Totale € ${euro(total)}</span>
       </div>
-      <div class="muted">Ordini non completati + stato attuale.</div>
 
       <table>
         <thead>
           <tr>
             <th>Articolo</th>
+            <th>€</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tempItems.map(it=>`
+            <tr>
+              <td>${esc(it.articolo)}</td>
+              <td>€ ${euro(it.prezzo)}</td>
+              <td><button class="small danger" onclick="removeTempItem('${it.id}')">Rimuovi</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+
+      <div class="row" style="margin-top:8px;justify-content:flex-end">
+        <button class="small danger" onclick="clearTempItems()">Svuota lista</button>
+      </div>
+
+      <div class="muted" style="margin-top:6px">
+        Nota: “Invia ordine” creerà un ordine per ogni riga (stesso cliente/sito/note).
+      </div>
+    </div>
+  `;
+}
+
+/* ---------- CREATE ORDER (ORA MULTI) ---------- */
+function addOrder(){
+  const cliente  = $("cliente")?.value.trim();
+  const sito     = $("sito")?.value.trim();
+  const articolo = $("progetto")?.value.trim();
+  const prezzoRaw= $("prezzo")?.value.trim();
+  const note     = $("note")?.value.trim();
+
+  if(!cliente || !sito){
+    alert("Compila Cliente e Sito vendita.");
+    return;
+  }
+
+  // lista finale: tempItems + (eventuale progetto compilato nei campi)
+  const finalItems = tempItems.slice();
+
+  if(articolo || prezzoRaw){
+    if(!articolo || !prezzoRaw){
+      alert("Hai compilato solo in parte Progetto/Prezzo. Completa entrambi oppure svuota i campi.");
+      return;
+    }
+    const prezzo = Number(prezzoRaw);
+    if(!Number.isFinite(prezzo)){
+      alert("Prezzo non valido.");
+      return;
+    }
+    finalItems.push({ id: `${articolo}__${Date.now()}`, articolo, prezzo });
+  }
+
+  if(finalItems.length === 0){
+    alert("Inserisci almeno un progetto (nei campi sopra o con + Aggiungi progetto).");
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  // crea un ordine per ogni progetto (così il resto dell'app resta identico)
+  finalItems.forEach(it=>{
+    const id = `${it.articolo}__${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+    orders.unshift({
+      id,
+      cliente,
+      sito,
+      articolo: it.articolo,
+      prezzo: Number(it.prezzo),
+      note,
+      flow: FLOW.PREPARAZIONE,
+      frontaleOK: false,
+      posterioreOK: false,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null
+    });
+  });
+
+  saveOrders();
+
+  // pulisci campi
+  ["cliente","sito","progetto","prezzo","note"].forEach(x=>{
+    const el = $(x); if(el) el.value = "";
+  });
+  // svuota lista multi-progetto
+  tempItems = [];
+  renderTempItems();
+
+  // vai in produzione e aggiorna tabella attivi
+  showPrep();
+  refreshActiveTable();
+}
+
+/* ---------- LOGICA 2 STANZE STAMPA ---------- */
+function autoToAssemblaggio(o){
+  if(o.flow === FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK){
+    o.flow = FLOW.ASSEMBLAGGIO;
+    touch(o);
+  }
+}
+
+function setFrontaleOK(id){
+  const o = orders.find(x=>x.id===id);
+  if(!o) return;
+  o.frontaleOK = true;
+  touch(o);
+  autoToAssemblaggio(o);
+  saveOrders();
+  render();
+  refreshActiveTable();
+}
+
+function setPosterioreOK(id){
+  const o = orders.find(x=>x.id===id);
+  if(!o) return;
+  o.posterioreOK = true;
+  touch(o);
+  autoToAssemblaggio(o);
+  saveOrders();
+  render();
+  refreshActiveTable();
+}
+
+/* ---------- AVANZAMENTO ---------- */
+function goPrev(id){
+  const o = orders.find(x=>x.id===id);
+  if(!o) return;
+
+  if(o.flow === FLOW.SPEDIZIONE) o.flow = FLOW.ASSEMBLAGGIO;
+  else if(o.flow === FLOW.COMPLETATO){
+    o.flow = FLOW.SPEDIZIONE;
+    o.completedAt = null;
+  }
+  else if(o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.PREPARAZIONE;
+
+  touch(o);
+  saveOrders();
+  render();
+  refreshActiveTable();
+  refreshSales();
+}
+
+function goNext(id){
+  const o = orders.find(x=>x.id===id);
+  if(!o) return;
+
+  if(o.flow === FLOW.ASSEMBLAGGIO) o.flow = FLOW.SPEDIZIONE;
+  else if(o.flow === FLOW.SPEDIZIONE){
+    o.flow = FLOW.COMPLETATO;
+    o.completedAt = new Date().toISOString();
+  }
+
+  touch(o);
+  saveOrders();
+  render();
+  refreshActiveTable();
+  refreshSales();
+}
+
+function removeOrder(id){
+  if(!confirm("Eliminare questo ordine?")) return;
+  orders = orders.filter(x=>x.id!==id);
+  saveOrders();
+  render();
+  refreshActiveTable();
+  refreshSales();
+}
+
+/* ---------- FILTRI COLONNE (NO DUPLICATI) ---------- */
+function inCol(o, colId){
+  // COMPLETATO / ASSEMBLAGGIO / SPEDIZIONE: diretti
+  if(colId === "COMPLETATO") return o.flow === FLOW.COMPLETATO;
+  if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
+  if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
+
+  // PREPARAZIONE: smistamento esclusivo tra PREP / FRONTALE / POSTERIORE
+  if(o.flow !== FLOW.PREPARAZIONE) return false;
+
+  const f = !!o.frontaleOK;
+  const p = !!o.posterioreOK;
+
+  if(colId === "PREP") return (!f && !p);
+  if(colId === "FRONTALE") return (!f && p);     // manca solo frontale
+  if(colId === "POSTERIORE") return (f && !p);   // manca solo posteriore
+  return false;
+}
+
+function statusLabel(o){
+  if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill ok"};
+  if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill info"};
+  if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill info"};
+
+  if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill warn"};
+  if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill warn"};
+  if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill warn"};
+  return {text:"PREPARAZIONE", cls:"pill warn"};
+}
+
+/* ---------- RENDER BOARD ---------- */
+function render(){
+  const board = $("board");
+  if(!board) return;
+
+  board.innerHTML = "";
+
+  COLS.forEach(colDef=>{
+    const col = document.createElement("div");
+    col.className = "col";
+
+    const items = orders.filter(o=>inCol(o,colDef.id));
+
+    const h2 = document.createElement("h2");
+    h2.innerHTML = `<span>${colDef.title}</span><span class="count">${items.length}</span>`;
+    col.appendChild(h2);
+
+    items.forEach(o=>{
+      const card = document.createElement("div");
+      card.className = "card" + (o.flow === FLOW.COMPLETATO ? " done" : "");
+      card.style.background = colDef.bg;
+      card.style.borderColor = colDef.border;
+
+      card.innerHTML = `
+        <div class="title">${esc(o.articolo)} — € ${euro(o.prezzo)}</div>
+        <div class="meta">
+          <b>Cliente:</b> ${esc(o.cliente)}<br>
+          <b>Sito:</b> ${esc(o.sito)}<br>
+          <b>Frontale:</b> ${o.frontaleOK ? "OK ✅" : "NO ❌"} &nbsp;|&nbsp;
+          <b>Posteriore:</b> ${o.posterioreOK ? "OK ✅" : "NO ❌"}<br>
+          <b>Creato:</b> ${fmtDT(o.createdAt)}<br>
+          <b>Agg.:</b> ${fmtDT(o.updatedAt)}
+          ${o.note ? `<br><b>Note:</b> ${esc(o.note)}` : ""}
+        </div>
+      `;
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      // PREP: ora puoi segnare OK frontale/posteriore direttamente
+      if(colDef.id === "PREP"){
+        const bf = document.createElement("button");
+        bf.className = "small ok";
+        bf.textContent = "OK Frontale ✔";
+        bf.onclick = ()=>setFrontaleOK(o.id);
+
+        const bp = document.createElement("button");
+        bp.className = "small ok";
+        bp.textContent = "OK Posteriore ✔";
+        bp.onclick = ()=>setPosterioreOK(o.id);
+
+        const del = document.createElement("button");
+        del.className = "small danger";
+        del.textContent = "Elimina";
+        del.onclick = ()=>removeOrder(o.id);
+
+        actions.appendChild(bf);
+        actions.appendChild(bp);
+        actions.appendChild(del);
+      }
+      else if(colDef.id === "FRONTALE"){
+        const b = document.createElement("button");
+        b.className = "small ok";
+        b.textContent = "OK Frontale ✔";
+        b.onclick = ()=>setFrontaleOK(o.id);
+        actions.appendChild(b);
+      }
+      else if(colDef.id === "POSTERIORE"){
+        const b = document.createElement("button");
+        b.className = "small ok";
+        b.textContent = "OK Posteriore ✔";
+        b.onclick = ()=>setPosterioreOK(o.id);
+        actions.appendChild(b);
+      }
+      else if(colDef.id === "ASSEMBLAGGIO" || colDef.id === "SPEDIZIONE"){
+        const prev = document.createElement("button");
+        prev.className = "small";
+        prev.textContent = "← Indietro";
+        prev.onclick = ()=>goPrev(o.id);
+
+        const next = document.createElement("button");
+        next.className = "small ok";
+        next.textContent = "Avanti →";
+        next.onclick = ()=>goNext(o.id);
+
+        actions.appendChild(prev);
+        actions.appendChild(next);
+      }
+      else if(colDef.id === "COMPLETATO"){
+        const prev = document.createElement("button");
+        prev.className = "small";
+        prev.textContent = "← Indietro";
+        prev.onclick = ()=>goPrev(o.id);
+        actions.appendChild(prev);
+      }
+
+      card.appendChild(actions);
+      col.appendChild(card);
+    });
+
+    board.appendChild(col);
+  });
+}
+
+/* ---------- TABELLA "ORDINI ATTIVI" ---------- */
+function refreshActiveTable(){
+  const tbody = $("activeTbody");
+  if(!tbody) return;
+
+  const actives = orders.filter(o=>o.flow !== FLOW.COMPLETATO);
+  tbody.innerHTML = "";
+
+  if(actives.length === 0){
+    tbody.innerHTML = `<tr><td colspan="7" class="muted">Nessun ordine attivo.</td></tr>`;
+    return;
+  }
+
+  actives.forEach(o=>{
+    const st = statusLabel(o);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(o.articolo)}</td>
+      <td>${esc(o.cliente)}</td>
+      <td>${esc(o.sito)}</td>
+      <td>€ ${euro(o.prezzo)}</td>
+      <td><span class="${st.cls}">${st.text}</span></td>
+      <td>${fmtDT(o.createdAt)}</td>
+      <td>${fmtDT(o.updatedAt)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ---------- VENDITE (PASSWORD 0000) ---------- */
+const SALES_UNLOCK_KEY = "ordini3d_sales_unlocked";
+
+function openSales(){
+  const unlocked = sessionStorage.getItem(SALES_UNLOCK_KEY) === "1";
+  if(!unlocked){
+    const pass = prompt("Password Vendite:");
+    if(pass !== "0000"){
+      alert("Password errata.");
+      return;
+    }
+    sessionStorage.setItem(SALES_UNLOCK_KEY, "1");
+  }
+  showSales();
+}
+
+function lockSales(){
+  sessionStorage.removeItem(SALES_UNLOCK_KEY);
+  alert("Vendite bloccate.");
+  showNew();
+}
+
+function refreshSales(){
+  const wrap = $("salesWrap");
+  if(!wrap) return;
+
+  const completed = orders
+    .filter(o=>o.flow === FLOW.COMPLETATO)
+    .slice()
+    .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
+
+  if(completed.length === 0){
+    wrap.innerHTML = `<div class="muted">Nessuna vendita per ora.</div>`;
+    return;
+  }
+
+  const map = new Map();
+  completed.forEach(o=>{
+    const k = dateKey(o.completedAt || o.updatedAt || o.createdAt);
+    if(!map.has(k)) map.set(k, []);
+    map.get(k).push(o);
+  });
+
+  const days = Array.from(map.keys()).sort((a,b)=>b.localeCompare(a));
+  wrap.innerHTML = "";
+
+  days.forEach(day=>{
+    const arr = map.get(day);
+    const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
+
+    const block = document.createElement("div");
+    block.className = "panel";
+    block.style.marginBottom = "12px";
+
+    block.innerHTML = `
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>${day}</b>
+        <span class="pill ok">Totale € ${euro(total)} • Ordini ${arr.length}</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Ora</th>
+            <th>Articolo</th>
             <th>Cliente</th>
             <th>Sito</th>
             <th>€</th>
-            <th>Stato</th>
-            <th>Creato</th>
-            <th>Aggiornato</th>
           </tr>
         </thead>
-        <tbody id="activeTbody"></tbody>
+        <tbody>
+          ${arr.map(o=>`
+            <tr>
+              <td>${(fmtDT(o.completedAt).split(" ")[1] || "-")}</td>
+              <td>${esc(o.articolo)}</td>
+              <td>${esc(o.cliente)}</td>
+              <td>${esc(o.sito)}</td>
+              <td>€ ${euro(o.prezzo)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
       </table>
-    </div>
-  </div>
+    `;
 
-  <!-- PRODUZIONE -->
-  <div id="page-prep" class="hide">
-    <div class="panel">
-      <div class="muted" style="margin-bottom:10px">
-        Regola: in <b>Assemblaggio</b> SOLO con <b>Frontale OK</b> + <b>Posteriore OK</b>.
-      </div>
-      <div class="board" id="board"></div>
-    </div>
-  </div>
+    wrap.appendChild(block);
+  });
+}
 
-  <!-- VENDITE -->
-  <div id="page-sales" class="hide">
-    <div class="panel">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <b>Vendite giornaliere</b>
-        <div class="row">
-          <button class="small" onclick="refreshSales()">Aggiorna</button>
-          <button class="small danger" onclick="lockSales()">Blocca</button>
-        </div>
-      </div>
-      <div class="muted">Solo ordini <b>Completati</b>, raggruppati per giorno.</div>
-      <div id="salesWrap" style="margin-top:12px"></div>
-    </div>
-  </div>
-</div>
+/* ---------- START ---------- */
+document.addEventListener("DOMContentLoaded", () => {
+  showNew();
 
-<script src="app.js"></script>
-</body>
-</html>
+  // aggiorna automaticamente tabella attivi quando sei su Nuovo ordine
+  setInterval(() => {
+    const pageNew = $("page-new");
+    if(pageNew && !pageNew.classList.contains("hide")){
+      refreshActiveTable();
+    }
+  }, 2000);
+});
+
