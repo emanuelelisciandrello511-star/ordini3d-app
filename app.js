@@ -4,6 +4,10 @@
    - tabella "ordini attivi" aggiornata
    - pagina Vendite protetta (0000)
    - MULTI PROGETTO: + Aggiungi progetto (crea più ordini con stesso cliente/sito/note)
+   - OK Frontale SOLO in colonna Frontale
+   - OK Posteriore SOLO in colonna Posteriore
+   - (quando mancano entrambi) lo stesso ordine appare in Frontale + Posteriore
+     così ogni reparto può fare il suo OK nella propria colonna
    - XSS safe (escape HTML)
    ========================= */
 
@@ -131,7 +135,6 @@ function addTempItem(){
     prezzo
   });
 
-  // pulisci i 2 campi per inserire altri progetti
   $("progetto").value = "";
   $("prezzo").value = "";
 
@@ -168,11 +171,7 @@ function renderTempItems(){
 
       <table>
         <thead>
-          <tr>
-            <th>Articolo</th>
-            <th>€</th>
-            <th></th>
-          </tr>
+          <tr><th>Articolo</th><th>€</th><th></th></tr>
         </thead>
         <tbody>
           ${tempItems.map(it=>`
@@ -232,10 +231,8 @@ function addOrder(){
 
   const now = new Date().toISOString();
 
-  // crea un ordine per ogni progetto (così il resto dell'app resta identico)
   finalItems.forEach(it=>{
     const id = `${it.articolo}__${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
     orders.unshift({
       id,
       cliente,
@@ -254,15 +251,13 @@ function addOrder(){
 
   saveOrders();
 
-  // pulisci campi
   ["cliente","sito","progetto","prezzo","note"].forEach(x=>{
     const el = $(x); if(el) el.value = "";
   });
-  // svuota lista multi-progetto
+
   tempItems = [];
   renderTempItems();
 
-  // vai in produzione e aggiorna tabella attivi
   showPrep();
   refreshActiveTable();
 }
@@ -342,22 +337,21 @@ function removeOrder(id){
   refreshSales();
 }
 
-/* ---------- FILTRI COLONNE (NO DUPLICATI) ---------- */
+/* ---------- FILTRI COLONNE (OK SOLO NELLE PROPRIE COLONNE) ---------- */
 function inCol(o, colId){
-  // COMPLETATO / ASSEMBLAGGIO / SPEDIZIONE: diretti
   if(colId === "COMPLETATO") return o.flow === FLOW.COMPLETATO;
   if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
   if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
 
-  // PREPARAZIONE: smistamento esclusivo tra PREP / FRONTALE / POSTERIORE
   if(o.flow !== FLOW.PREPARAZIONE) return false;
 
-  const f = !!o.frontaleOK;
-  const p = !!o.posterioreOK;
+  // Preparazione: solo quando mancano entrambi (lista “amministrativa”)
+  if(colId === "PREP") return (!o.frontaleOK && !o.posterioreOK);
 
-  if(colId === "PREP") return (!f && !p);
-  if(colId === "FRONTALE") return (!f && p);     // manca solo frontale
-  if(colId === "POSTERIORE") return (f && !p);   // manca solo posteriore
+  // Stampa: ogni colonna mostra il suo lavoro se manca il suo OK
+  if(colId === "FRONTALE") return !o.frontaleOK;
+  if(colId === "POSTERIORE") return !o.posterioreOK;
+
   return false;
 }
 
@@ -411,25 +405,12 @@ function render(){
       const actions = document.createElement("div");
       actions.className = "actions";
 
-      // PREP: ora puoi segnare OK frontale/posteriore direttamente
+      // PREP: niente OK qui (come hai chiesto). Solo elimina.
       if(colDef.id === "PREP"){
-        const bf = document.createElement("button");
-        bf.className = "small ok";
-        bf.textContent = "OK Frontale ✔";
-        bf.onclick = ()=>setFrontaleOK(o.id);
-
-        const bp = document.createElement("button");
-        bp.className = "small ok";
-        bp.textContent = "OK Posteriore ✔";
-        bp.onclick = ()=>setPosterioreOK(o.id);
-
         const del = document.createElement("button");
         del.className = "small danger";
         del.textContent = "Elimina";
         del.onclick = ()=>removeOrder(o.id);
-
-        actions.appendChild(bf);
-        actions.appendChild(bp);
         actions.appendChild(del);
       }
       else if(colDef.id === "FRONTALE"){
@@ -567,13 +548,7 @@ function refreshSales(){
 
       <table>
         <thead>
-          <tr>
-            <th>Ora</th>
-            <th>Articolo</th>
-            <th>Cliente</th>
-            <th>Sito</th>
-            <th>€</th>
-          </tr>
+          <tr><th>Ora</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th></tr>
         </thead>
         <tbody>
           ${arr.map(o=>`
@@ -605,4 +580,3 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }, 2000);
 });
-
