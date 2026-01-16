@@ -1,35 +1,30 @@
-/* =========================================================
-   PIANETA 3D - LAB (APP.JS COMPLETO - LOGIN FIXED)
-   - Login iniziale password 0000 + "Ricorda accesso"
-   - ENTER nella password per entrare
-   - Nuovo ordine: multi-progetto (lista righe) + invio
-   - Produzione:
-     🟡 Ordini ricevuti (PREPARAZIONE): Elimina + Ritira dal magazzino (-1) -> SPEDIZIONE
-     🔵 Frontale: OK Frontale
-     🟠 Posteriore: OK Posteriore
-     🟣 Assemblaggio / 🟤 Spedizione: Avanti/Indietro
-     🟢 Completato: visibile SOLO 24h in board (storico vendite resta completo)
-   - BUG FIX:
-     Indietro da SPEDIZIONE -> torna SEMPRE in ORDINI RICEVUTI (PREPARAZIONE)
-     Ordini ricevuti mostra TUTTI i PREPARAZIONE (non dipende da front/post)
-   - Vendite: calendario 365gg + dettaglio + stampa giorno/mese/intervallo
-   - Magazzino: qty + riga rossa se qty=0
-   - Completati: archivio (con elimina) + semplice
-   - Impostazioni: cancella solo completati / reset totale
-   ========================================================= */
-
 (() => {
   "use strict";
 
-  /* ------------------ CONFIG ------------------ */
-  const LOGIN_PASS = "0000";
-  const LS_KEY_LOGIN = "p3d_login_ok";        // "1" se ricordato
+  /* =========================
+     STORAGE
+  ========================= */
   const LS_KEY_ORDERS = "ordini3d_orders_v4";
   const LS_KEY_STOCK  = "ordini3d_stock_v1";
-  const SALES_UNLOCK_KEY = "ordini3d_sales_unlocked";
 
-  const MS_24H  = 24 * 60 * 60 * 1000;
-  const MS_365D = 365 * 24 * 60 * 60 * 1000;
+  function loadJSON(key, fallback){
+    try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+    catch { return fallback; }
+  }
+  function saveJSON(key, value){
+    localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  let orders = loadJSON(LS_KEY_ORDERS, []);
+  let stock  = loadJSON(LS_KEY_STOCK, {});
+
+  function saveOrders(){ saveJSON(LS_KEY_ORDERS, orders); }
+  function saveStock(){ saveJSON(LS_KEY_STOCK, stock); }
+
+  /* =========================
+     CONFIG
+  ========================= */
+  const MS_24H = 24 * 60 * 60 * 1000;
 
   const FLOW = {
     PREPARAZIONE: "PREPARAZIONE",
@@ -47,7 +42,9 @@
     { id: "COMPLETATO",   title: "🟢 Completato (24h)",   bg: "#dfffe6", border: "#33c26b" },
   ];
 
-  /* ------------------ DOM UTILS ------------------ */
+  /* =========================
+     DOM + UTILS
+  ========================= */
   const $ = (id) => document.getElementById(id);
 
   function esc(s){
@@ -68,62 +65,35 @@
     const d = new Date(iso);
     return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
-  function dateKeyFromISO(iso){
+  function touch(o){ o.updatedAt = new Date().toISOString(); }
+  function uid(prefix="ord"){
+    return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+  function dayKey(iso){
     const d = new Date(iso);
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   }
-  function keyToDate(key){ return new Date(key + "T00:00:00"); }
-  function uid(prefix="id"){
-    return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  }
-  function touch(o){ o.updatedAt = new Date().toISOString(); }
 
-  /* ------------------ STORAGE HELPERS ------------------ */
-  function loadJSON(key, fallback){
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch {
-      return fallback;
-    }
-  }
-  function saveJSON(key, value){
-    localStorage.setItem(key, JSON.stringify(value));
-  }
-
-  let orders = loadJSON(LS_KEY_ORDERS, []);
-  let stock  = loadJSON(LS_KEY_STOCK, {});
-  function saveOrders(){ saveJSON(LS_KEY_ORDERS, orders); }
-  function saveStock(){ saveJSON(LS_KEY_STOCK, stock); }
-
-  /* ------------------ NORMALIZE (ordini vecchi) ------------------ */
+  /* =========================
+     NORMALIZE
+  ========================= */
   (function normalize(){
     let changed = false;
 
     orders = (orders || []).map(o=>{
       if(!o || typeof o !== "object"){ changed = true; return null; }
 
-      if(o.articolo == null && o.progetto != null){ o.articolo = o.progetto; changed = true; }
-      if(o.sito == null && o.site != null){ o.sito = o.site; changed = true; }
-
-      if(o.prezzo != null && typeof o.prezzo === "string"){
-        const p = Number(o.prezzo.replace(",", "."));
-        if(Number.isFinite(p)){ o.prezzo = p; changed = true; }
-      }
-
-      if(!o.createdAt){ o.createdAt = new Date().toISOString(); changed = true; }
-      if(!o.updatedAt){ o.updatedAt = o.createdAt; changed = true; }
-
       if(!Object.values(FLOW).includes(o.flow)){
         o.flow = FLOW.PREPARAZIONE;
         changed = true;
       }
-
       if(typeof o.frontaleOK !== "boolean"){ o.frontaleOK = false; changed = true; }
       if(typeof o.posterioreOK !== "boolean"){ o.posterioreOK = false; changed = true; }
+      if(!o.createdAt){ o.createdAt = new Date().toISOString(); changed = true; }
+      if(!o.updatedAt){ o.updatedAt = o.createdAt; changed = true; }
 
       if(o.flow === FLOW.COMPLETATO && !o.completedAt){
-        o.completedAt = o.updatedAt || o.createdAt;
+        o.completedAt = o.updatedAt;
         changed = true;
       }
 
@@ -133,15 +103,9 @@
     if(changed) saveOrders();
   })();
 
-  /* ------------------ AUTO MOVE ------------------ */
-  function autoToAssemblaggio(o){
-    if(o.flow === FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK){
-      o.flow = FLOW.ASSEMBLAGGIO;
-      touch(o);
-    }
-  }
-
-  /* ------------------ NAV / PAGES ------------------ */
+  /* =========================
+     NAV PAGES
+  ========================= */
   function setActive(which){
     $("tab-new")?.classList.toggle("active", which==="new");
     $("tab-prep")?.classList.toggle("active", which==="prep");
@@ -154,10 +118,7 @@
 
   function hideAllPages(){
     ["page-new","page-prep","page-sales","page-stock","page-done","page-done-simple","page-settings"]
-      .forEach(id=>{
-        const el = $(id);
-        if(el) el.classList.add("hide");
-      });
+      .forEach(id => $(id)?.classList.add("hide"));
   }
 
   function showNew(){
@@ -167,120 +128,50 @@
     refreshActiveTable();
     renderTempItems();
   }
-
   function showPrep(){
     hideAllPages();
     $("page-prep")?.classList.remove("hide");
     setActive("prep");
     renderBoard();
   }
-
-  function showStock(){
-    hideAllPages();
-    $("page-stock")?.classList.remove("hide");
-    setActive("stock");
-    renderStock();
-  }
-
   function showSales(){
     hideAllPages();
     $("page-sales")?.classList.remove("hide");
     setActive("sales");
     refreshSalesUI();
   }
-
+  function showStock(){
+    hideAllPages();
+    $("page-stock")?.classList.remove("hide");
+    setActive("stock");
+    renderStock();
+  }
   function showDone(){
     hideAllPages();
     $("page-done")?.classList.remove("hide");
     setActive("done");
     renderDone();
   }
-
   function showDoneSimple(){
     hideAllPages();
     $("page-done-simple")?.classList.remove("hide");
     setActive("doneSimple");
     renderDoneSimple();
   }
-
   function showSettings(){
     hideAllPages();
     $("page-settings")?.classList.remove("hide");
     setActive("settings");
   }
 
-  /* ------------------ LOGIN UI ------------------ */
-  function setTabsEnabled(enabled){
-    const ids = ["tab-new","tab-prep","tab-sales","tab-stock","tab-done","tab-done-simple","tab-settings"];
-    ids.forEach(id=>{
-      const b = $(id);
-      if(b) b.disabled = !enabled;
-    });
-  }
-
-  function showLogin(){
-    $("loginScreen")?.classList.remove("hide");
-    setTabsEnabled(false);
-    setTimeout(()=> $("loginPass")?.focus(), 50);
-  }
-
-  function hideLogin(){
-    $("loginScreen")?.classList.add("hide");
-    setTabsEnabled(true);
-  }
-
-  function login(){
-    const pass = ($("loginPass")?.value ?? "").trim(); // FIX: trim
-    const remember = !!$("loginRemember")?.checked;
-
-    if(pass !== LOGIN_PASS){
-      alert("Password errata.");
-      return;
-    }
-
-    if(remember) localStorage.setItem(LS_KEY_LOGIN, "1");
-    else localStorage.removeItem(LS_KEY_LOGIN);
-
-    if($("loginPass")) $("loginPass").value = "";
-
-    hideLogin();
-    showNew();
-  }
-
-  function logout(){
-    localStorage.removeItem(LS_KEY_LOGIN);
-    sessionStorage.removeItem(SALES_UNLOCK_KEY);
-    showLogin();
-  }
-
-  /* ------------------ SALES LOCK ------------------ */
-  function openSales(){
-    const unlocked = sessionStorage.getItem(SALES_UNLOCK_KEY) === "1";
-    if(!unlocked){
-      const pass = (prompt("Password Vendite:") ?? "").trim();
-      if(pass !== LOGIN_PASS){
-        alert("Password errata.");
-        return;
-      }
-      sessionStorage.setItem(SALES_UNLOCK_KEY, "1");
-    }
-    showSales();
-  }
-
-  function lockSales(){
-    sessionStorage.removeItem(SALES_UNLOCK_KEY);
-    alert("Vendite bloccate.");
-    showNew();
-  }
-
-  /* =========================================================
-     NUOVO ORDINE: MULTI-PROGETTO
-     ========================================================= */
-  let tempItems = []; // RAM only
+  /* =========================
+     NUOVO ORDINE (multi-progetto)
+  ========================= */
+  let tempItems = [];
 
   function addTempItem(){
-    const articolo = $("progetto")?.value.trim();
-    const prezzoRaw = $("prezzo")?.value.trim();
+    const articolo = ($("progetto")?.value ?? "").trim();
+    const prezzoRaw = ($("prezzo")?.value ?? "").trim();
 
     if(!articolo || !prezzoRaw){
       alert("Compila Numero progetto e Prezzo, poi premi + Aggiungi progetto.");
@@ -303,7 +194,6 @@
     tempItems = tempItems.filter(x=>x.id !== id);
     renderTempItems();
   }
-
   function clearTempItems(){
     tempItems = [];
     renderTempItems();
@@ -324,7 +214,7 @@
       <div class="panel">
         <div class="row" style="justify-content:space-between;align-items:center">
           <b>Progetti in lista</b>
-          <span class="pill info">Righe: ${tempItems.length} • Totale € ${euro(total)}</span>
+          <span class="pill">Righe: ${tempItems.length} • Totale € ${euro(total)}</span>
         </div>
         <table>
           <thead><tr><th>Articolo</th><th>€</th><th></th></tr></thead>
@@ -346,11 +236,11 @@
   }
 
   function addOrder(){
-    const cliente  = $("cliente")?.value.trim();
-    const sito     = $("sito")?.value.trim();
-    const articolo = $("progetto")?.value.trim();
-    const prezzoRaw= $("prezzo")?.value.trim();
-    const note     = $("note")?.value.trim();
+    const cliente  = ($("cliente")?.value ?? "").trim();
+    const sito     = ($("sito")?.value ?? "").trim();
+    const articolo = ($("progetto")?.value ?? "").trim();
+    const prezzoRaw= ($("prezzo")?.value ?? "").trim();
+    const note     = ($("note")?.value ?? "").trim();
 
     if(!cliente || !sito){
       alert("Compila Cliente e Sito vendita.");
@@ -359,10 +249,9 @@
 
     const finalItems = tempItems.slice();
 
-    // consenti invio anche senza premere +Aggiungi progetto
     if(articolo || prezzoRaw){
       if(!articolo || !prezzoRaw){
-        alert("Hai compilato solo in parte Progetto/Prezzo. Completa entrambi oppure svuota i campi.");
+        alert("Completa Progetto e Prezzo oppure svuota i campi.");
         return;
       }
       const prezzo = Number(prezzoRaw);
@@ -409,29 +298,21 @@
     refreshSalesUI();
   }
 
-  /* =========================================================
+  /* =========================
      MAGAZZINO
-     ========================================================= */
+  ========================= */
   function upsertStock(){
-    const art = $("stkArticolo")?.value.trim();
-    const qtyRaw = $("stkQty")?.value.trim();
+    const art = ($("stkArticolo")?.value ?? "").trim();
+    const qtyRaw = ($("stkQty")?.value ?? "").trim();
 
-    if(!art){
-      alert("Inserisci Numero progetto.");
-      return;
-    }
+    if(!art){ alert("Inserisci Numero progetto."); return; }
     const qty = Number(qtyRaw);
-    if(!Number.isFinite(qty) || qty < 0){
-      alert("Quantità non valida (>= 0).");
-      return;
-    }
+    if(!Number.isFinite(qty) || qty < 0){ alert("Quantità non valida (>= 0)."); return; }
 
     stock[art] = Math.floor(qty);
     saveStock();
-
     $("stkArticolo").value = "";
     $("stkQty").value = "";
-
     renderStock();
     renderBoard();
   }
@@ -462,20 +343,25 @@
       const tr = document.createElement("tr");
       if(qty === 0) tr.classList.add("stockZero");
 
-      const enc = encodeURIComponent(art);
-
       tr.innerHTML = `
         <td>${esc(art)}</td>
         <td><b>${qty}</b></td>
-        <td><button class="small danger" onclick="deleteStockEncoded('${enc}')">Elimina</button></td>
+        <td><button class="small danger" onclick="deleteStockEncoded('${encodeURIComponent(art)}')">Elimina</button></td>
       `;
       tbody.appendChild(tr);
     });
   }
 
-  /* =========================================================
+  /* =========================
      PRODUZIONE
-     ========================================================= */
+  ========================= */
+  function autoToAssemblaggio(o){
+    if(o.flow === FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK){
+      o.flow = FLOW.ASSEMBLAGGIO;
+      touch(o);
+    }
+  }
+
   function setFrontaleOK(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
@@ -485,7 +371,6 @@
     saveOrders();
     renderBoard();
     refreshActiveTable();
-    refreshSalesUI();
   }
 
   function setPosterioreOK(id){
@@ -497,7 +382,6 @@
     saveOrders();
     renderBoard();
     refreshActiveTable();
-    refreshSalesUI();
   }
 
   function ritiraDaMagazzino(id){
@@ -515,7 +399,6 @@
     stock[art] = qty - 1;
     saveStock();
 
-    // va direttamente in SPEDIZIONE e consideriamo stampato (no stampa)
     o.flow = FLOW.SPEDIZIONE;
     o.frontaleOK = true;
     o.posterioreOK = true;
@@ -525,16 +408,14 @@
     renderBoard();
     renderStock();
     refreshActiveTable();
-    refreshSalesUI();
   }
 
-  /* ---- BUG FIX: Indietro da SPEDIZIONE -> PREPARAZIONE ---- */
   function goPrev(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
 
     if(o.flow === FLOW.SPEDIZIONE){
-      o.flow = FLOW.PREPARAZIONE;
+      o.flow = FLOW.PREPARAZIONE; // FIX richiesto
     } else if(o.flow === FLOW.COMPLETATO){
       o.flow = FLOW.SPEDIZIONE;
       o.completedAt = null;
@@ -577,7 +458,6 @@
   }
 
   function inCol(o, colId){
-    // Completato: solo 24h in board
     if(colId === "COMPLETATO"){
       if(o.flow !== FLOW.COMPLETATO) return false;
       const t = new Date(o.completedAt || o.updatedAt || o.createdAt).getTime();
@@ -586,10 +466,8 @@
     if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
     if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
 
-    // Ordini ricevuti: tutti i PREPARAZIONE
-    if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
+    if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE; // FIX: sempre tutti i PREP
 
-    // Front/Back: solo se in PREPARAZIONE e manca l'OK
     if(o.flow !== FLOW.PREPARAZIONE) return false;
     if(colId === "FRONTALE") return !o.frontaleOK;
     if(colId === "POSTERIORE") return !o.posterioreOK;
@@ -600,7 +478,6 @@
   function renderBoard(){
     const board = $("board");
     if(!board) return;
-
     board.innerHTML = "";
 
     COLS.forEach(colDef=>{
@@ -631,7 +508,6 @@
             <b>Posteriore:</b> ${o.posterioreOK ? "OK ✅" : "NO ❌"}<br>
             <b>Creato:</b> ${fmtDT(o.createdAt)}<br>
             <b>Agg.:</b> ${fmtDT(o.updatedAt)}
-            ${o.flow === FLOW.COMPLETATO ? `<br><b>Completato:</b> ${fmtDT(o.completedAt)}` : ""}
             ${o.note ? `<br><b>Note:</b> ${esc(o.note)}` : ""}
             ${art ? `<br><b>Magazzino:</b> ${qty}` : ""}
           </div>
@@ -699,18 +575,18 @@
     });
   }
 
-  /* =========================================================
-     ORDINI ATTIVI (tabella Nuovo ordine)
-     ========================================================= */
+  /* =========================
+     ORDINI ATTIVI
+  ========================= */
   function statusLabel(o){
-    if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill ok"};
-    if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill info"};
-    if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill info"};
+    if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill"};
+    if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill"};
+    if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill"};
 
-    if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill warn"};
-    if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill warn"};
-    if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill warn"};
-    return {text:"ORDINI RICEVUTI", cls:"pill warn"};
+    if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill"};
+    if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill"};
+    if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill"};
+    return {text:"ORDINI RICEVUTI", cls:"pill"};
   }
 
   function refreshActiveTable(){
@@ -733,7 +609,7 @@
         <td>${esc(o.cliente ?? "-")}</td>
         <td>${esc(o.sito ?? "-")}</td>
         <td>€ ${euro(o.prezzo ?? 0)}</td>
-        <td><span class="${st.cls}">${st.text}</span></td>
+        <td>${esc(st.text)}</td>
         <td>${fmtDT(o.createdAt)}</td>
         <td>${fmtDT(o.updatedAt)}</td>
       `;
@@ -741,23 +617,21 @@
     });
   }
 
-  /* =========================================================
-     VENDITE (Calendar 365gg + Stampa)
-     ========================================================= */
+  /* =========================
+     VENDITE (semplice, senza password)
+  ========================= */
   let salesMonthCursor = new Date();
   let salesSelectedDayKey = null;
 
-  function getCompletedOrdersAll(){
-    return orders
-      .filter(o=>o.flow === FLOW.COMPLETATO)
-      .slice()
+  function getCompletedAll(){
+    return orders.filter(o=>o.flow === FLOW.COMPLETATO).slice()
       .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
   }
 
-  function groupSalesByDayKey(arr){
+  function groupByDay(arr){
     const map = new Map();
     arr.forEach(o=>{
-      const k = dateKeyFromISO(o.completedAt || o.updatedAt || o.createdAt);
+      const k = dayKey(o.completedAt || o.updatedAt || o.createdAt);
       if(!map.has(k)) map.set(k, []);
       map.get(k).push(o);
     });
@@ -766,51 +640,48 @@
 
   function salesPrevMonth(){
     salesMonthCursor = new Date(salesMonthCursor.getFullYear(), salesMonthCursor.getMonth()-1, 1);
-    renderSalesCalendar();
+    refreshSalesUI();
   }
   function salesNextMonth(){
     salesMonthCursor = new Date(salesMonthCursor.getFullYear(), salesMonthCursor.getMonth()+1, 1);
-    renderSalesCalendar();
+    refreshSalesUI();
   }
 
   function refreshSalesUI(){
     const page = $("page-sales");
     if(!page || page.classList.contains("hide")) return;
-    renderSalesCalendar();
-    renderSalesDayDetails();
-  }
 
-  function renderSalesCalendar(){
     const monthLabel = $("salesMonthLabel");
     const cal = $("salesCal");
     const dow = $("salesDow");
-    if(!cal || !dow || !monthLabel) return;
+    const label = $("salesSelectedLabel");
+    const details = $("salesDayDetails");
+    if(!monthLabel || !cal || !dow || !label || !details) return;
 
-    const monthNames = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+    const monthNames = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
     monthLabel.textContent = `${monthNames[salesMonthCursor.getMonth()]} ${salesMonthCursor.getFullYear()}`;
 
-    dow.innerHTML = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"]
-      .map(x=>`<div class="calDow">${x}</div>`).join("");
+    dow.innerHTML = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"].map(x=>`<div class="muted" style="width:40px">${x}</div>`).join("");
 
-    const all = getCompletedOrdersAll();
-    const byDay = groupSalesByDayKey(all);
+    const all = getCompletedAll();
+    const byDay = groupByDay(all);
 
-    const start = new Date(salesMonthCursor.getFullYear(), salesMonthCursor.getMonth(), 1);
-    const end   = new Date(salesMonthCursor.getFullYear(), salesMonthCursor.getMonth()+1, 0);
+    const y = salesMonthCursor.getFullYear();
+    const m = salesMonthCursor.getMonth();
+    const first = new Date(y, m, 1);
+    const last = new Date(y, m+1, 0);
 
-    const minDate = new Date(Date.now() - MS_365D);
-    const maxDate = new Date();
-
-    const firstJsDow = start.getDay(); // 0..6
+    const firstJsDow = first.getDay(); // 0..6
     const firstIsoDow = firstJsDow === 0 ? 7 : firstJsDow;
     const padCells = firstIsoDow - 1;
 
     cal.innerHTML = "";
     for(let i=0;i<padCells;i++){
-      const c = document.createElement("div");
-      c.className = "dayCell dayOff";
-      c.innerHTML = `<div class="dayNum"></div>`;
-      cal.appendChild(c);
+      const cell = document.createElement("div");
+      cell.className = "card";
+      cell.style.minHeight = "60px";
+      cell.style.opacity = "0.3";
+      cal.appendChild(cell);
     }
 
     if(!salesSelectedDayKey){
@@ -818,77 +689,43 @@
       salesSelectedDayKey = `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}`;
     }
 
-    const minMid = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate());
-    const maxMid = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate());
-
-    for(let d=1; d<=end.getDate(); d++){
-      const cur = new Date(start.getFullYear(), start.getMonth(), d);
-      const key = `${cur.getFullYear()}-${pad(cur.getMonth()+1)}-${pad(d)}`;
-
-      const inWindow = (cur >= minMid && cur <= maxMid);
-
-      const dayOrders = byDay.get(key) || [];
-      const count = dayOrders.length;
-      const total = dayOrders.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
+    for(let d=1; d<=last.getDate(); d++){
+      const key = `${y}-${pad(m+1)}-${pad(d)}`;
+      const arr = byDay.get(key) || [];
+      const total = arr.reduce((s,o)=>s+(Number(o.prezzo)||0),0);
 
       const cell = document.createElement("div");
-      cell.className = "dayCell" + (salesSelectedDayKey===key ? " daySelected" : "") + (!inWindow ? " dayOff" : "");
-      cell.innerHTML = `
-        <div class="dayNum">${d}</div>
-        <div class="dayMeta">
-          ${count ? `<b>${count}</b> ordini<br>€ ${euro(total)}` : `&nbsp;`}
-        </div>
-      `;
-
-      if(inWindow){
-        cell.onclick = ()=>{
-          salesSelectedDayKey = key;
-          renderSalesCalendar();
-          renderSalesDayDetails();
-        };
-      }
-
+      cell.className = "card";
+      cell.style.minHeight = "60px";
+      cell.style.cursor = "pointer";
+      cell.innerHTML = `<b>${d}</b><div class="muted">${arr.length ? `${arr.length} ord.<br>€ ${euro(total)}` : ""}</div>`;
+      cell.onclick = ()=>{
+        salesSelectedDayKey = key;
+        refreshSalesUI();
+      };
       cal.appendChild(cell);
     }
 
-    $("salesSelectedLabel")?.textContent = `Dettaglio giorno: ${salesSelectedDayKey}`;
-  }
-
-  function renderSalesDayDetails(){
-    const wrap = $("salesDayDetails");
-    const label = $("salesSelectedLabel");
-    if(!wrap || !label) return;
-
-    const all = getCompletedOrdersAll();
-    const byDay = groupSalesByDayKey(all);
-
-    const key = salesSelectedDayKey;
-    label.textContent = `Dettaglio giorno: ${key}`;
-
-    const arr = byDay.get(key) || [];
-    if(arr.length === 0){
-      wrap.innerHTML = `<div class="muted">Nessuna vendita in questo giorno.</div>`;
+    label.textContent = `Dettaglio giorno: ${salesSelectedDayKey}`;
+    const dayArr = byDay.get(salesSelectedDayKey) || [];
+    if(dayArr.length === 0){
+      details.innerHTML = `<div class="muted">Nessuna vendita in questo giorno.</div>`;
       return;
     }
-
-    const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
-
-    wrap.innerHTML = `
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <span class="pill ok">Ordini: ${arr.length}</span>
-        <span class="pill ok">Totale: € ${euro(total)}</span>
-      </div>
+    const tot = dayArr.reduce((s,o)=>s+(Number(o.prezzo)||0),0);
+    details.innerHTML = `
+      <div class="muted">Ordini: ${dayArr.length} • Totale: € ${euro(tot)}</div>
       <table>
         <thead><tr><th>Ora</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th></tr></thead>
         <tbody>
-          ${arr.map(o=>{
+          ${dayArr.map(o=>{
             const time = (fmtDT(o.completedAt).split(" ")[1] || "-");
             return `<tr>
               <td>${time}</td>
-              <td>${esc(o.articolo ?? "-")}</td>
-              <td>${esc(o.cliente ?? "-")}</td>
-              <td>${esc(o.sito ?? "-")}</td>
-              <td>€ ${euro(o.prezzo ?? 0)}</td>
+              <td>${esc(o.articolo)}</td>
+              <td>${esc(o.cliente)}</td>
+              <td>${esc(o.sito)}</td>
+              <td>€ ${euro(o.prezzo)}</td>
             </tr>`;
           }).join("")}
         </tbody>
@@ -896,150 +733,18 @@
     `;
   }
 
-  function printHTML(title, inner){
-    const w = window.open("", "_blank");
-    if(!w){
-      alert("Popup bloccato: consenti popup per stampare.");
-      return;
-    }
-    w.document.open();
-    w.document.write(`<!doctype html>
-<html><head><meta charset="utf-8">
-<title>${esc(title)}</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:24px;color:#111}
-  h1{font-size:18px;margin:0 0 10px 0}
-  .muted{color:#666;font-size:12px}
-  table{width:100%;border-collapse:collapse;margin-top:12px}
-  th,td{font-size:12px;text-align:left;padding:8px;border-bottom:1px solid #eee}
-</style>
-</head><body>
-${inner}
-<script>window.onload=()=>window.print();</script>
-</body></html>`);
-    w.document.close();
-  }
+  // niente password: vendite si apre e basta
+  function openSales(){ showSales(); }
+  function lockSales(){}
 
-  function printSelectedDay(){
-    const key = salesSelectedDayKey;
-    const all = getCompletedOrdersAll();
-    const byDay = groupSalesByDayKey(all);
-    const arr = byDay.get(key) || [];
-    const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
-
-    const html = `
-      <h1>Report vendite - Giorno ${esc(key)}</h1>
-      <div class="muted">Ordini: ${arr.length} • Totale: € ${euro(total)}</div>
-      <table>
-        <thead><tr><th>Ora</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th></tr></thead>
-        <tbody>
-          ${arr.map(o=>{
-            const time = (fmtDT(o.completedAt).split(" ")[1] || "-");
-            return `<tr>
-              <td>${time}</td>
-              <td>${esc(o.articolo ?? "-")}</td>
-              <td>${esc(o.cliente ?? "-")}</td>
-              <td>${esc(o.sito ?? "-")}</td>
-              <td>€ ${euro(o.prezzo ?? 0)}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-    `;
-    printHTML(`Report giorno ${key}`, html);
-  }
-
-  function printCurrentMonth(){
-    const y = salesMonthCursor.getFullYear();
-    const m = salesMonthCursor.getMonth();
-    const monthNames = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-    const start = new Date(y, m, 1);
-    const endTo = new Date(y, m+1, 0, 23, 59, 59);
-
-    const all = getCompletedOrdersAll();
-    const arr = all.filter(o=>{
-      const d = new Date(o.completedAt || o.updatedAt || o.createdAt);
-      return d >= start && d <= endTo;
-    });
-
-    const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
-
-    const html = `
-      <h1>Report vendite - ${monthNames[m]} ${y}</h1>
-      <div class="muted">Ordini: ${arr.length} • Totale: € ${euro(total)}</div>
-      <table>
-        <thead><tr><th>Data/Ora</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th></tr></thead>
-        <tbody>
-          ${arr.map(o=>`
-            <tr>
-              <td>${esc(fmtDT(o.completedAt || o.updatedAt || o.createdAt))}</td>
-              <td>${esc(o.articolo ?? "-")}</td>
-              <td>${esc(o.cliente ?? "-")}</td>
-              <td>${esc(o.sito ?? "-")}</td>
-              <td>€ ${euro(o.prezzo ?? 0)}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
-    printHTML(`Report mese ${monthNames[m]} ${y}`, html);
-  }
-
-  function printRange(){
-    const from = $("rangeFrom")?.value;
-    const to = $("rangeTo")?.value;
-
-    if(!from || !to){
-      alert("Seleziona Dal e Al.");
-      return;
-    }
-
-    const dFrom = keyToDate(from);
-    const dTo = keyToDate(to);
-    const endTo = new Date(dTo.getFullYear(), dTo.getMonth(), dTo.getDate(), 23, 59, 59);
-
-    if(endTo < dFrom){
-      alert("Intervallo non valido (Al deve essere >= Dal).");
-      return;
-    }
-
-    const all = getCompletedOrdersAll();
-    const arr = all.filter(o=>{
-      const d = new Date(o.completedAt || o.updatedAt || o.createdAt);
-      return d >= dFrom && d <= endTo;
-    });
-
-    const total = arr.reduce((s,o)=>s + (Number(o.prezzo)||0), 0);
-
-    const html = `
-      <h1>Report vendite - Intervallo ${esc(from)} → ${esc(to)}</h1>
-      <div class="muted">Ordini: ${arr.length} • Totale: € ${euro(total)}</div>
-      <table>
-        <thead><tr><th>Data/Ora</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th></tr></thead>
-        <tbody>
-          ${arr.map(o=>`
-            <tr>
-              <td>${esc(fmtDT(o.completedAt || o.updatedAt || o.createdAt))}</td>
-              <td>${esc(o.articolo ?? "-")}</td>
-              <td>${esc(o.cliente ?? "-")}</td>
-              <td>${esc(o.sito ?? "-")}</td>
-              <td>€ ${euro(o.prezzo ?? 0)}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
-    printHTML(`Report intervallo ${from}-${to}`, html);
-  }
-
-  /* =========================================================
-     COMPLETATI
-     ========================================================= */
+  /* =========================
+     COMPLETATI LISTE
+  ========================= */
   function renderDone(){
     const tbody = $("doneTbody");
     if(!tbody) return;
 
-    const completed = getCompletedOrdersAll();
+    const completed = getCompletedAll();
     tbody.innerHTML = "";
 
     if(completed.length === 0){
@@ -1051,10 +756,10 @@ ${inner}
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(fmtDT(o.completedAt || o.updatedAt || o.createdAt))}</td>
-        <td>${esc(o.articolo ?? "-")}</td>
-        <td>${esc(o.cliente ?? "-")}</td>
-        <td>${esc(o.sito ?? "-")}</td>
-        <td>€ ${euro(o.prezzo ?? 0)}</td>
+        <td>${esc(o.articolo)}</td>
+        <td>${esc(o.cliente)}</td>
+        <td>${esc(o.sito)}</td>
+        <td>€ ${euro(o.prezzo)}</td>
         <td><button class="small danger" onclick="deleteCompleted('${o.id}')">Elimina</button></td>
       `;
       tbody.appendChild(tr);
@@ -1065,7 +770,7 @@ ${inner}
     const tbody = $("doneSimpleTbody");
     if(!tbody) return;
 
-    const completed = getCompletedOrdersAll();
+    const completed = getCompletedAll();
     tbody.innerHTML = "";
 
     if(completed.length === 0){
@@ -1077,8 +782,8 @@ ${inner}
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${esc(fmtDT(o.completedAt || o.updatedAt || o.createdAt))}</td>
-        <td>${esc(o.articolo ?? "-")}</td>
-        <td>€ ${euro(o.prezzo ?? 0)}</td>
+        <td>${esc(o.articolo)}</td>
+        <td>€ ${euro(o.prezzo)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -1086,16 +791,10 @@ ${inner}
 
   function deleteCompleted(id){
     const o = orders.find(x=>x.id===id);
-    if(!o) return;
-    if(o.flow !== FLOW.COMPLETATO){
-      alert("Questo ordine non è completato.");
-      return;
-    }
+    if(!o || o.flow !== FLOW.COMPLETATO) return;
     if(!confirm("Eliminare questo completato dalla memoria?")) return;
-
-    orders = orders.filter(x=>x.id!==id);
+    orders = orders.filter(x=>x.id !== id);
     saveOrders();
-
     renderDone();
     renderDoneSimple();
     refreshSalesUI();
@@ -1116,9 +815,9 @@ ${inner}
     if(!confirm("RESET TUTTO? (ordini + magazzino)")) return;
     orders = [];
     stock = {};
+    tempItems = [];
     saveOrders();
     saveStock();
-    tempItems = [];
     renderTempItems();
     renderStock();
     renderBoard();
@@ -1129,26 +828,11 @@ ${inner}
     alert("Reset completato.");
   }
 
-  /* ------------------ START ------------------ */
+  /* =========================
+     START
+  ========================= */
   document.addEventListener("DOMContentLoaded", () => {
-    // ENTER nella password login
-    setTimeout(() => {
-      const p = $("loginPass");
-      if(p){
-        p.addEventListener("keydown", (e) => {
-          if(e.key === "Enter") login();
-        });
-      }
-    }, 0);
-
-    const ok = localStorage.getItem(LS_KEY_LOGIN) === "1";
-    if(ok){
-      hideLogin();
-      showNew();
-    } else {
-      showLogin();
-    }
-
+    showNew();
     setInterval(() => {
       const pageNew = $("page-new");
       if(pageNew && !pageNew.classList.contains("hide")){
@@ -1157,38 +841,17 @@ ${inner}
     }, 2000);
   });
 
-  /* ------------------ EXPORT FUNCTIONS TO HTML ------------------ */
+  /* =========================
+     EXPORT (per onclick HTML)
+  ========================= */
   Object.assign(window, {
-    // login
-    login, logout,
-
-    // pages
     showNew, showPrep, showSales, showStock, showDone, showDoneSimple, showSettings,
-
-    // sales lock
     openSales, lockSales,
-
-    // new order
     addTempItem, removeTempItem, clearTempItems, addOrder,
-
-    // stock
-    upsertStock, renderStock, deleteStockEncoded,
-
-    // sales UI + nav + print
-    refreshSalesUI, salesPrevMonth, salesNextMonth,
-    printSelectedDay, printCurrentMonth, printRange,
-
-    // production / board
-    renderBoard,
-
-    // tables
-    refreshActiveTable,
-
-    // done
-    renderDone, renderDoneSimple, deleteCompleted, clearCompleted,
-
-    // settings
-    clearAllData,
+    upsertStock, deleteStockEncoded,
+    clearCompleted, clearAllData,
+    // internals used by buttons created in JS:
+    removeOrder, setFrontaleOK, setPosterioreOK,
   });
 
 })();
