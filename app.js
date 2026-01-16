@@ -1,3 +1,15 @@
+console.log("APP.JS CARICATO ✅");
+
+window.showNew = () => console.log("showNew non ancora agganciata");
+window.showPrep = () => console.log("showPrep non ancora agganciata");
+window.openSales = () => console.log("openSales non ancora agganciata");
+window.showStock = () => console.log("showStock non ancora agganciata");
+window.showDone = () => console.log("showDone non ancora agganciata");
+window.showDoneSimple = () => console.log("showDoneSimple non ancora agganciata");
+window.showSettings = () => console.log("showSettings non ancora agganciata");
+window.onerror = function(msg, url, line, col, err){
+  alert("ERRORE JS: " + msg + "\nRiga: " + line + ":" + col);
+};
 (() => {
   "use strict";
 
