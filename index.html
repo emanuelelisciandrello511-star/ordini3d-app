@@ -10,7 +10,7 @@
     header{position:sticky;top:0;background:#fff;padding:12px 14px;border-bottom:1px solid #e6e7ee;z-index:5}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     h1{font-size:16px;margin:0}
-    input,button,textarea{padding:10px;border:1px solid #d9dbe7;border-radius:10px;background:#fff;font-size:14px}
+    input,button,textarea,select{padding:10px;border:1px solid #d9dbe7;border-radius:10px;background:#fff;font-size:14px}
     textarea{min-height:44px;resize:vertical;width:100%}
     button{cursor:pointer}
     .wrap{padding:12px}
@@ -19,9 +19,11 @@
     .tab.active{border-color:#b9c3ff}
     .panel{background:#fff;border:1px solid #e6e7ee;border-radius:12px;padding:12px}
     .label{font-size:12px;color:#555;margin:6px 0 4px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    @media(max-width:900px){.grid2{grid-template-columns:1fr}}
     .hide{display:none}
+
+    /* Form verticale (uno sotto l'altro) */
+    .stack{display:flex;flex-direction:column;gap:10px}
+    .field{display:flex;flex-direction:column}
 
     .board{display:grid;grid-template-columns:repeat(6,minmax(220px,1fr));gap:10px;align-items:start}
     @media (max-width: 1200px){ .board{grid-template-columns:repeat(2,minmax(220px,1fr));} }
@@ -48,6 +50,21 @@
     .pill.ok{border-color:#cfe9d6;background:#f4fff7}
     .pill.warn{border-color:#ffe3b7;background:#fff8e8}
     .pill.info{border-color:#d8e6ff;background:#f2f7ff}
+
+    /* Calendar */
+    .calTop{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+    .calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:10px}
+    .calDow{font-size:11px;color:#666;text-align:center}
+    .dayCell{border:1px solid #e6e7ee;border-radius:12px;padding:10px;background:#fff;min-height:70px;cursor:pointer}
+    .dayCell:hover{background:#fafbff}
+    .dayNum{font-weight:700}
+    .dayMeta{margin-top:6px;font-size:11px;color:#444;line-height:1.25}
+    .dayOff{opacity:.35}
+    .daySelected{border-color:#b9c3ff;box-shadow:0 0 0 3px rgba(185,195,255,.25)}
+
+    /* Stock */
+    .stockZero{background:#fff5f5}
+    .stockZero td{border-top-color:#ffd0d0}
   </style>
 </head>
 
@@ -59,6 +76,7 @@
       <button class="tab active" id="tab-new" onclick="showNew()">Nuovo ordine</button>
       <button class="tab" id="tab-prep" onclick="showPrep()">Produzione</button>
       <button class="tab" id="tab-sales" onclick="openSales()">Vendite</button>
+      <button class="tab" id="tab-stock" onclick="showStock()">Magazzino</button>
     </div>
   </div>
 </header>
@@ -66,41 +84,43 @@
 <div class="wrap">
   <!-- NUOVO ORDINE -->
   <div id="page-new" class="panel">
-    <div class="grid2">
-      <div>
+    <div class="stack">
+      <div class="field">
         <div class="label">Cliente</div>
-        <input id="cliente" placeholder="Es. Mario Rossi">
+        <input id="cliente" placeholder="Es. Mario Rossi" data-nav="1">
       </div>
-      <div>
+
+      <div class="field">
         <div class="label">Sito vendita</div>
-        <input id="sito" placeholder="Etsy / Shopify / WhatsApp">
+        <input id="sito" placeholder="Etsy / Shopify / WhatsApp" data-nav="2">
       </div>
-      <div>
+
+      <div class="field">
         <div class="label">Numero progetto (ARTICOLO)</div>
-        <input id="progetto" placeholder="PRJ-2026-001">
+        <input id="progetto" placeholder="PRJ-2026-001" data-nav="3">
       </div>
-      <div>
+
+      <div class="field">
         <div class="label">Prezzo (€)</div>
-        <input id="prezzo" type="number" step="0.01" placeholder="49.90">
+        <input id="prezzo" type="number" step="0.01" placeholder="49.90" data-nav="4">
       </div>
-    </div>
 
-    <!-- MULTI PROGETTO -->
-    <div class="row" style="margin-top:10px">
-      <button class="small ok" onclick="addTempItem()">+ Aggiungi progetto</button>
-      <span class="muted">Puoi inserire più progetti prima di inviare</span>
-    </div>
+      <div class="row">
+        <button class="small ok" onclick="addTempItem()">+ Aggiungi progetto</button>
+        <span class="muted">Tip: usa ↑ ↓ per spostarti tra i campi (inserimento veloce).</span>
+      </div>
 
-    <div id="tempItemsWrap" style="margin-top:10px"></div>
+      <div id="tempItemsWrap"></div>
 
-    <div style="margin-top:10px">
-      <div class="label">Note ordine (opzionale)</div>
-      <textarea id="note" placeholder="Dettagli utili..."></textarea>
-    </div>
+      <div class="field">
+        <div class="label">Note ordine (opzionale)</div>
+        <textarea id="note" placeholder="Dettagli utili..." data-nav="5"></textarea>
+      </div>
 
-    <div class="row" style="margin-top:10px">
-      <button class="ok" onclick="addOrder()">+ Invia ordine</button>
-      <span class="muted">Ogni progetto verrà creato come ordine separato</span>
+      <div class="row">
+        <button class="ok" onclick="addOrder()">+ Invia ordine</button>
+        <span class="muted">Ogni progetto verrà creato come ordine separato</span>
+      </div>
     </div>
 
     <div style="margin-top:14px">
@@ -126,6 +146,8 @@
     <div class="panel">
       <div class="muted" style="margin-bottom:10px">
         Regola: in <b>Assemblaggio</b> SOLO con <b>Frontale OK</b> + <b>Posteriore OK</b>.
+        • <b>Completato</b> resta visibile in board solo <b>24 ore</b>.
+        • In <b>Ordini ricevuti</b> puoi fare <b>Ritira dal magazzino</b> (se c’è giacenza) → va in <b>Spedizione</b>.
       </div>
       <div class="board" id="board"></div>
     </div>
@@ -135,17 +157,135 @@
   <div id="page-sales" class="hide">
     <div class="panel">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <b>Vendite giornaliere</b>
+        <b>Vendite</b>
         <div class="row">
-          <button class="small" onclick="refreshSales()">Aggiorna</button>
+          <button class="small" onclick="refreshSalesUI()">Aggiorna</button>
           <button class="small danger" onclick="lockSales()">Blocca</button>
         </div>
       </div>
-      <div class="muted">Solo ordini <b>Completati</b>, raggruppati per giorno con totale €.</div>
-      <div id="salesWrap" style="margin-top:12px"></div>
+
+      <div class="panel" style="margin-top:10px">
+        <div class="calTop">
+          <div class="row">
+            <button class="small" onclick="salesPrevMonth()">←</button>
+            <b id="salesMonthLabel">Mese</b>
+            <button class="small" onclick="salesNextMonth()">→</button>
+          </div>
+          <div class="muted">Calendario vendite (ultimi 365 giorni). Clicca un giorno per i dettagli.</div>
+        </div>
+
+        <div class="calGrid" id="salesDow"></div>
+        <div class="calGrid" id="salesCal"></div>
+      </div>
+
+      <div class="panel" style="margin-top:10px">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <b id="salesSelectedLabel">Dettaglio giorno</b>
+          <div class="row">
+            <button class="small" onclick="printSelectedDay()">Stampa giorno</button>
+            <button class="small" onclick="printCurrentMonth()">Stampa mese</button>
+          </div>
+        </div>
+        <div id="salesDayDetails" style="margin-top:10px"></div>
+      </div>
+
+      <div class="panel" style="margin-top:10px">
+        <b>Stampa intervallo</b>
+        <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+          <div style="min-width:180px;flex:1">
+            <div class="label">Dal</div>
+            <input type="date" id="rangeFrom">
+          </div>
+          <div style="min-width:180px;flex:1">
+            <div class="label">Al</div>
+            <input type="date" id="rangeTo">
+          </div>
+          <div style="display:flex;align-items:end">
+            <button class="ok" onclick="printRange()">Stampa intervallo</button>
+          </div>
+        </div>
+        <div class="muted" style="margin-top:6px">Seleziona date e stampa report personalizzato.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAGAZZINO -->
+  <div id="page-stock" class="hide">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>Magazzino</b>
+        <button class="small" onclick="renderStock()">Aggiorna</button>
+      </div>
+
+      <div class="stack" style="margin-top:10px">
+        <div class="field">
+          <div class="label">Numero progetto</div>
+          <input id="stkArticolo" placeholder="PRJ-2026-001">
+        </div>
+        <div class="field">
+          <div class="label">Quantità disponibile</div>
+          <input id="stkQty" type="number" step="1" placeholder="10">
+        </div>
+        <div class="row">
+          <button class="ok" onclick="upsertStock()">Salva / Aggiorna</button>
+          <span class="muted">Se quantità = 0 la riga diventa rossa.</span>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Articolo</th><th>Quantità</th><th>Azioni</th></tr>
+        </thead>
+        <tbody id="stockTbody"></tbody>
+      </table>
     </div>
   </div>
 </div>
+
+<!-- Navigazione veloce con frecce nei campi Nuovo Ordine -->
+<script>
+  (function(){
+    const order = ["cliente","sito","progetto","prezzo","note"];
+
+    function focusByIndex(i){
+      const id = order[Math.max(0, Math.min(order.length-1, i))];
+      const el = document.getElementById(id);
+      if(el){ el.focus(); if(el.select) el.select(); }
+    }
+
+    document.addEventListener("keydown", (e)=>{
+      const a = document.activeElement;
+      if(!a) return;
+      if(!order.includes(a.id)) return;
+
+      // ↑ ↓ per cambiare campo
+      if(e.key === "ArrowDown" || e.key === "ArrowUp"){
+        e.preventDefault();
+        const idx = order.indexOf(a.id);
+        focusByIndex(idx + (e.key === "ArrowDown" ? 1 : -1));
+        return;
+      }
+
+      // Enter: comportamento "veloce"
+      // - se sei su Prezzo -> aggiunge progetto
+      // - se sei su Note -> invia ordine
+      if(e.key === "Enter"){
+        if(a.id === "prezzo"){
+          e.preventDefault();
+          if(typeof window.addTempItem === "function") window.addTempItem();
+          focusByIndex(order.indexOf("progetto"));
+          return;
+        }
+        if(a.id === "note"){
+          e.preventDefault();
+          if(typeof window.addOrder === "function") window.addOrder();
+          focusByIndex(0);
+          return;
+        }
+      }
+    });
+  })();
+</script>
 
 <script src="app.js"></script>
 </body>
