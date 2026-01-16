@@ -113,13 +113,7 @@
       <table>
         <thead>
           <tr>
-            <th>Articolo</th>
-            <th>Cliente</th>
-            <th>Sito</th>
-            <th>€</th>
-            <th>Stato</th>
-            <th>Creato</th>
-            <th>Aggiornato</th>
+            <th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th><th>Stato</th><th>Creato</th><th>Aggiornato</th>
           </tr>
         </thead>
         <tbody id="activeTbody"></tbody>
@@ -137,7 +131,7 @@
     </div>
   </div>
 
-  <!-- VENDITE -->
+  <!-- VENDITE (protetta) -->
   <div id="page-sales" class="hide">
     <div class="panel">
       <div class="row" style="justify-content:space-between;align-items:center">
@@ -147,7 +141,7 @@
           <button class="small danger" onclick="lockSales()">Blocca</button>
         </div>
       </div>
-      <div class="muted">Solo ordini <b>Completati</b>, raggruppati per giorno.</div>
+      <div class="muted">Solo ordini <b>Completati</b>, raggruppati per giorno con totale €.</div>
       <div id="salesWrap" style="margin-top:12px"></div>
     </div>
   </div>
