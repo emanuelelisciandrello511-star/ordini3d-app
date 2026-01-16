@@ -2,33 +2,136 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>TEST NETLIFY</title>
+  <title>Pianeta 3D Lab</title>
   <style>
-    body {
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      background: #0f172a;
-      font-family: Arial, sans-serif;
-      color: #22c55e;
+    body{
+      margin:0;
+      font-family:Arial,sans-serif;
+      background:#0f172a;
+      color:#e5e7eb;
     }
-    h1 {
-      font-size: 40px;
+
+    /* ===== PASSWORD ===== */
+    #lock{
+      position:fixed;
+      inset:0;
+      background:#020617;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index:9999;
+    }
+    #lockBox{
+      background:#020617;
+      border:1px solid rgba(255,255,255,.15);
+      padding:30px;
+      border-radius:14px;
+      text-align:center;
+      box-shadow:0 20px 40px rgba(0,0,0,.6);
+    }
+    #lockBox input{
+      padding:10px;
+      width:140px;
+      text-align:center;
+      font-size:18px;
+      border-radius:8px;
+      border:1px solid rgba(255,255,255,.2);
+      background:#0f172a;
+      color:#e5e7eb;
+    }
+    #lockBox button{
+      margin-top:10px;
+      padding:8px 16px;
+      border-radius:8px;
+      background:#111827;
+      border:1px solid rgba(255,255,255,.2);
+      color:#e5e7eb;
+      cursor:pointer;
+    }
+
+    /* ===== APP ===== */
+    header{
+      background:#020617;
+      padding:14px 20px;
+    }
+    .page{
+      padding:20px;
+      max-width:900px;
+      margin:auto;
+    }
+    input{
+      padding:8px;
+      border-radius:6px;
+      border:1px solid rgba(255,255,255,.15);
+      background:#020617;
+      color:#e5e7eb;
+    }
+    table{
+      width:100%;
+      margin-top:16px;
+      border-collapse:collapse;
+    }
+    th,td{
+      border-bottom:1px solid rgba(255,255,255,.1);
+      padding:8px;
+      text-align:left;
     }
   </style>
 </head>
 <body>
 
-  <h1>✅ NETLIFY FUNZIONA</h1>
+<!-- BLOCCO PASSWORD -->
+<div id="lock">
+  <div id="lockBox">
+    <h2>🔒 Accesso</h2>
+    <p>Inserisci la password</p>
+    <input id="pass" type="password" maxlength="4" />
+    <br>
+    <button onclick="checkPass()">Entra</button>
+    <p id="err" style="color:#fb7185;display:none;margin-top:10px">Password errata</p>
+  </div>
+</div>
 
-  <script>
-    document.body.insertAdjacentHTML(
-      "beforeend",
-      "<p style='color:white'>JS ESEGUITO AUTOMATICAMENTE</p>"
-    );
-  </script>
+<header>
+  <h2>Pianeta 3D Lab – Ordini</h2>
+</header>
+
+<div class="page">
+  <h3>📁 Ordini</h3>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <input id="cliente" placeholder="Cliente">
+    <input id="numero" placeholder="Numero ordine">
+    <input id="canale" placeholder="Canale vendita">
+    <input id="prezzo" placeholder="Prezzo €">
+    <button onclick="addOrdine()">Aggiungi</button>
+  </div>
+
+  <table id="ordiniTable"></table>
+</div>
+
+<script src="app.js"></script>
+
+<script>
+  // ===== PASSWORD LOGIC =====
+  const PASSWORD = "0000";
+  const KEY = "p3d_access_ok";
+
+  function checkPass(){
+    const v = document.getElementById("pass").value;
+    if(v === PASSWORD){
+      localStorage.setItem(KEY,"1");
+      document.getElementById("lock").style.display="none";
+    }else{
+      document.getElementById("err").style.display="block";
+    }
+  }
+
+  // auto unlock se già entrato
+  if(localStorage.getItem(KEY)==="1"){
+    document.getElementById("lock").style.display="none";
+  }
+</script>
 
 </body>
 </html>
