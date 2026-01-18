@@ -31,6 +31,7 @@
       border-radius:10px;
       background:#fff;
       font-size:14px;
+      box-sizing:border-box;
     }
 
     textarea{resize:vertical;min-height:50px}
@@ -87,6 +88,7 @@
       padding:8px;
       border-bottom:1px solid #eee;
       text-align:left;
+      vertical-align:top;
     }
 
     .muted{color:#666;font-size:12px}
@@ -96,6 +98,7 @@
       display:grid;
       grid-template-columns:repeat(6,minmax(220px,1fr));
       gap:10px;
+      align-items:start;
     }
 
     @media(max-width:1200px){
@@ -117,7 +120,11 @@
       margin:0 0 8px 0;
       display:flex;
       justify-content:space-between;
+      align-items:center;
+      gap:10px;
     }
+
+    .count{font-size:12px;color:#666}
 
     .card{
       border:1px solid #e6e7ee;
@@ -147,11 +154,14 @@
       border-radius:999px;
       font-size:11px;
       border:1px solid #ddd;
+      background:#fff;
     }
 
     .stockZero{
       background:#ffecec;
     }
+
+    hr{border:none;border-top:1px solid #eef0f6;margin:14px 0}
   </style>
 </head>
 
@@ -180,22 +190,22 @@
     <div class="stack">
       <div>
         <div class="label">Cliente</div>
-        <input id="cliente">
+        <input id="cliente" placeholder="Es. Mario Rossi">
       </div>
 
       <div>
         <div class="label">Sito vendita</div>
-        <input id="sito">
+        <input id="sito" placeholder="Etsy / Shopify / WhatsApp">
       </div>
 
       <div>
         <div class="label">Numero progetto</div>
-        <input id="progetto">
+        <input id="progetto" placeholder="PRJ-2026-001">
       </div>
 
       <div>
         <div class="label">Prezzo (€)</div>
-        <input id="prezzo" type="number" step="0.01">
+        <input id="prezzo" type="number" step="0.01" placeholder="49.90">
       </div>
 
       <button class="small ok" onclick="addTempItem()">+ Aggiungi progetto</button>
@@ -204,7 +214,7 @@
 
       <div>
         <div class="label">Note</div>
-        <textarea id="note"></textarea>
+        <textarea id="note" placeholder="Dettagli utili..."></textarea>
       </div>
 
       <button class="ok" onclick="addOrder()">INVIA ORDINE</button>
@@ -239,21 +249,21 @@
   <!-- VENDITE -->
   <div id="page-sales" class="hide">
     <div class="panel">
-      <div class="row" style="justify-content:space-between">
+      <div class="row" style="justify-content:space-between;align-items:center">
         <b>Vendite</b>
         <button class="small danger" onclick="lockSales()">Blocca</button>
       </div>
 
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:10px;align-items:center">
         <button class="small" onclick="salesPrevMonth()">◀</button>
         <b id="salesMonthLabel"></b>
         <button class="small" onclick="salesNextMonth()">▶</button>
       </div>
 
-      <div id="salesDow" class="row"></div>
-      <div id="salesCal" class="board"></div>
+      <div id="salesDow" class="row" style="margin-top:8px"></div>
+      <div id="salesCal" class="board" style="margin-top:8px"></div>
 
-      <h4 id="salesSelectedLabel"></h4>
+      <h4 id="salesSelectedLabel" style="margin:14px 0 8px"></h4>
       <div id="salesDayDetails"></div>
 
       <div class="row" style="margin-top:10px">
@@ -330,4 +340,5 @@
 </div>
 
 <script src="app.js"></script>
-
+</body>
+</html>
