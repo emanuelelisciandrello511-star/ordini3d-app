@@ -27,6 +27,7 @@ window.onerror = function (msg, url, line, col) {
     return;
   }
 
+  // ✅ evita "Identifier 'supabase' has already been declared"
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   const TBL_ORDERS = "orders_app";
@@ -66,13 +67,16 @@ window.onerror = function (msg, url, line, col) {
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
   }
+
   function pad(n) {
     return String(n).padStart(2, "0");
   }
+
   function euro(n) {
     const x = Number(n);
     return Number.isNaN(x) ? "0.00" : x.toFixed(2);
   }
+
   function fmtDT(iso) {
     if (!iso) return "-";
     const d = new Date(iso);
@@ -80,14 +84,17 @@ window.onerror = function (msg, url, line, col) {
       d.getHours()
     )}:${pad(d.getMinutes())}`;
   }
+
   function dayKey(iso) {
     const d = new Date(iso);
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
+
   function uid(prefix = "ord") {
     if (crypto?.randomUUID) return `${prefix}_${crypto.randomUUID()}`;
     return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   }
+
   function nowIso() {
     return new Date().toISOString();
   }
@@ -141,6 +148,7 @@ window.onerror = function (msg, url, line, col) {
   ========================= */
   async function fetchOrders() {
     const { data, error } = await sb.from(TBL_ORDERS).select("*").order("created_at", { ascending: false });
+
     if (error) {
       console.error("fetchOrders:", error);
       alert("Supabase: non riesco a leggere orders_app (vedi Console).");
@@ -152,6 +160,7 @@ window.onerror = function (msg, url, line, col) {
 
   async function fetchStock() {
     const { data, error } = await sb.from(TBL_STOCK).select("*");
+
     if (error) {
       console.error("fetchStock:", error);
       alert("Supabase: non riesco a leggere stock_app (vedi Console).");
@@ -176,7 +185,9 @@ window.onerror = function (msg, url, line, col) {
   /* =========================
      REALTIME (multi-device)
   ========================= */
-  let t1 = null, t2 = null;
+  let t1 = null,
+    t2 = null;
+
   const debounce = (fn, ms, key) => {
     if (key === 1) {
       clearTimeout(t1);
@@ -189,20 +200,26 @@ window.onerror = function (msg, url, line, col) {
 
   function startRealtime() {
     sb.channel("rt_orders_app")
-      .on("postgres_changes", { event: "*", schema: "public", table: TBL_ORDERS }, () => debounce(fetchOrders, 200, 1))
+      .on("postgres_changes", { event: "*", schema: "public", table: TBL_ORDERS }, () =>
+        debounce(fetchOrders, 200, 1)
+      )
       .subscribe();
 
     sb.channel("rt_stock_app")
-      .on("postgres_changes", { event: "*", schema: "public", table: TBL_STOCK }, () => debounce(fetchStock, 200, 2))
+      .on("postgres_changes", { event: "*", schema: "public", table: TBL_STOCK }, () =>
+        debounce(fetchStock, 200, 2)
+      )
       .subscribe();
   }
 
   /* =========================
      NAV PAGES
-     (setActive robusto: non dipende da id tab-*)
   ========================= */
   function setActive(which) {
-    // prova a usare id tab-* se ci sono, altrimenti non rompe nulla
+    // reset class su tutti
+    document.querySelectorAll(".tabs .tab").forEach((b) => b.classList.remove("active"));
+
+    // se nel tuo HTML hai gli id tab-*
     const map = {
       new: "tab-new",
       prep: "tab-prep",
@@ -212,19 +229,13 @@ window.onerror = function (msg, url, line, col) {
       doneSimple: "tab-done-simple",
       settings: "tab-settings",
     };
-
-    // reset class su tutti i bottoni .tab
-    document.querySelectorAll(".tabs .tab").forEach((b) => b.classList.remove("active"));
-
-    // se ci sono gli id, li usiamo
-    const id = map[which];
-    const el = id ? $(id) : null;
+    const el = $(map[which] || "");
     if (el) {
       el.classList.add("active");
       return;
     }
 
-    // fallback: seleziona per testo (robusto col tuo HTML)
+    // fallback (se non ci sono gli id)
     const labels = {
       new: "Nuovo ordine",
       prep: "Produzione",
@@ -242,8 +253,8 @@ window.onerror = function (msg, url, line, col) {
   }
 
   function hideAllPages() {
-    ["page-new", "page-prep", "page-sales", "page-stock", "page-done", "page-done-simple", "page-settings"].forEach((id) =>
-      $(id)?.classList.add("hide")
+    ["page-new", "page-prep", "page-sales", "page-stock", "page-done", "page-done-simple", "page-settings"].forEach(
+      (id) => $(id)?.classList.add("hide")
     );
   }
 
@@ -297,7 +308,7 @@ window.onerror = function (msg, url, line, col) {
   }
 
   /* =========================
-     VENDITE PASSWORD
+     VENDITE PASSWORD (solo qui)
   ========================= */
   const SALES_UNLOCK_KEY = "p3d_sales_unlock";
   const SALES_PASSWORD = "0000";
@@ -337,7 +348,9 @@ window.onerror = function (msg, url, line, col) {
       alert("Prezzo non valido.");
       return;
     }
+
     tempItems.push({ id: uid("tmp"), articolo, prezzo });
+
     $("progetto").value = "";
     $("prezzo").value = "";
     renderTempItems();
@@ -361,6 +374,7 @@ window.onerror = function (msg, url, line, col) {
       wrap.innerHTML = `<div class="muted">Nessun progetto in lista (puoi inviare anche solo quello nei campi sopra).</div>`;
       return;
     }
+
     const total = tempItems.reduce((s, x) => s + (Number(x.prezzo) || 0), 0);
 
     wrap.innerHTML = `
@@ -454,9 +468,10 @@ window.onerror = function (msg, url, line, col) {
       const el = $(x);
       if (el) el.value = "";
     });
+
     tempItems = [];
     renderTempItems();
-    showPrep();
+    showPrep(); // realtime aggiorna tutti (e anche UI locale)
   }
 
   /* =========================
@@ -470,6 +485,7 @@ window.onerror = function (msg, url, line, col) {
       alert("Inserisci Numero progetto.");
       return;
     }
+
     const qty = Number(qtyRaw);
     if (!Number.isFinite(qty) || qty < 0) {
       alert("Quantità non valida (>= 0).");
@@ -515,6 +531,7 @@ window.onerror = function (msg, url, line, col) {
       const qty = Number(stock[art] ?? 0);
       const tr = document.createElement("tr");
       if (qty === 0) tr.classList.add("stockZero");
+
       tr.innerHTML = `
         <td>${esc(art)}</td>
         <td><b>${qty}</b></td>
@@ -549,22 +566,30 @@ window.onerror = function (msg, url, line, col) {
     }
   }
 
+  // ✅ FIX: dopo click aggiorniamo SUBITO la UI (anche se realtime non è attivo)
   async function setFrontaleOK(id) {
     const o = orders.find((x) => x.id === id);
     if (!o) return;
+
     o.frontaleOK = true;
     o.updatedAt = nowIso();
     autoToAssemblaggioLocal(o);
+
     await patchOrder(id, { frontaleOK: o.frontaleOK, flow: o.flow, updatedAt: o.updatedAt });
+    rerenderAll();
   }
 
+  // ✅ FIX: dopo click aggiorniamo SUBITO la UI (anche se realtime non è attivo)
   async function setPosterioreOK(id) {
     const o = orders.find((x) => x.id === id);
     if (!o) return;
+
     o.posterioreOK = true;
     o.updatedAt = nowIso();
     autoToAssemblaggioLocal(o);
+
     await patchOrder(id, { posterioreOK: o.posterioreOK, flow: o.flow, updatedAt: o.updatedAt });
+    rerenderAll();
   }
 
   async function ritiraDaMagazzino(id) {
@@ -578,6 +603,7 @@ window.onerror = function (msg, url, line, col) {
       return;
     }
 
+    // scala stock
     const { error: e1 } = await sb.from(TBL_STOCK).upsert({ articolo: art, qty: qty - 1 }, { onConflict: "articolo" });
     if (e1) {
       console.error("ritira stock:", e1);
@@ -585,6 +611,7 @@ window.onerror = function (msg, url, line, col) {
       return;
     }
 
+    // ordine -> spedizione
     o.flow = FLOW.SPEDIZIONE;
     o.frontaleOK = true;
     o.posterioreOK = true;
@@ -596,6 +623,8 @@ window.onerror = function (msg, url, line, col) {
       posterioreOK: o.posterioreOK,
       updatedAt: o.updatedAt,
     });
+
+    rerenderAll();
   }
 
   async function goPrev(id) {
@@ -613,6 +642,7 @@ window.onerror = function (msg, url, line, col) {
 
     o.updatedAt = nowIso();
     await patchOrder(o.id, { flow: o.flow, completedAt: o.completedAt ?? null, updatedAt: o.updatedAt });
+    rerenderAll();
   }
 
   async function goNext(id) {
@@ -628,6 +658,7 @@ window.onerror = function (msg, url, line, col) {
 
     o.updatedAt = nowIso();
     await patchOrder(o.id, { flow: o.flow, completedAt: o.completedAt ?? null, updatedAt: o.updatedAt });
+    rerenderAll();
   }
 
   async function removeOrder(id) {
@@ -752,7 +783,7 @@ window.onerror = function (msg, url, line, col) {
   }
 
   /* =========================
-     ORDINI ATTIVI (TABELLINA)
+     ORDINI ATTIVI (tabella)
   ========================= */
   function statusLabel(o) {
     if (o.flow === FLOW.COMPLETATO) return { text: "COMPLETATO" };
@@ -794,9 +825,7 @@ window.onerror = function (msg, url, line, col) {
   }
 
   /* =========================
-     VENDITE (CALENDARIO)
-     (Funziona solo se nel tuo HTML ci sono gli ID:
-      salesMonthLabel, salesDow, salesSelectedLabel, salesDayDetails)
+     VENDITE (calendario)
   ========================= */
   let salesMonthCursor = new Date();
   let salesSelectedDayKey = null;
@@ -822,6 +851,7 @@ window.onerror = function (msg, url, line, col) {
     salesMonthCursor = new Date(salesMonthCursor.getFullYear(), salesMonthCursor.getMonth() - 1, 1);
     refreshSalesUI();
   }
+
   function salesNextMonth() {
     salesMonthCursor = new Date(salesMonthCursor.getFullYear(), salesMonthCursor.getMonth() + 1, 1);
     refreshSalesUI();
@@ -837,13 +867,13 @@ window.onerror = function (msg, url, line, col) {
     const label = $("salesSelectedLabel");
     const details = $("salesDayDetails");
 
-    // se non ci sono questi ID nel tuo HTML, non rompiamo l’app
+    // se mancano questi ID, non rompiamo l’app
     if (!monthLabel || !cal || !dow || !label || !details) return;
 
-    const monthNames = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+    const monthNames = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
     monthLabel.textContent = `${monthNames[salesMonthCursor.getMonth()]} ${salesMonthCursor.getFullYear()}`;
 
-    dow.innerHTML = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"]
+    dow.innerHTML = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
       .map((x) => `<div class="muted" style="width:40px">${x}</div>`)
       .join("");
 
@@ -891,26 +921,30 @@ window.onerror = function (msg, url, line, col) {
 
     label.textContent = `Dettaglio giorno: ${salesSelectedDayKey}`;
     const dayArr = byDay.get(salesSelectedDayKey) || [];
+
     if (dayArr.length === 0) {
       details.innerHTML = `<div class="muted">Nessuna vendita in questo giorno.</div>`;
       return;
     }
+
     const tot = dayArr.reduce((s, o) => s + (Number(o.prezzo) || 0), 0);
     details.innerHTML = `
       <div class="muted">Ordini: ${dayArr.length} • Totale: € ${euro(tot)}</div>
       <table>
         <thead><tr><th>Ora</th><th>Articolo</th><th>Cliente</th><th>Sito</th><th>€</th></tr></thead>
         <tbody>
-          ${dayArr.map((o) => {
-            const time = (fmtDT(o.completedAt).split(" ")[1] || "-");
-            return `<tr>
-              <td>${time}</td>
-              <td>${esc(o.articolo)}</td>
-              <td>${esc(o.cliente)}</td>
-              <td>${esc(o.sito)}</td>
-              <td>€ ${euro(o.prezzo)}</td>
-            </tr>`;
-          }).join("")}
+          ${dayArr
+            .map((o) => {
+              const time = (fmtDT(o.completedAt).split(" ")[1] || "-");
+              return `<tr>
+                <td>${time}</td>
+                <td>${esc(o.articolo)}</td>
+                <td>${esc(o.cliente)}</td>
+                <td>${esc(o.sito)}</td>
+                <td>€ ${euro(o.prezzo)}</td>
+              </tr>`;
+            })
+            .join("")}
         </tbody>
       </table>
     `;
@@ -1014,15 +1048,31 @@ window.onerror = function (msg, url, line, col) {
      EXPORT (onclick HTML)
   ========================= */
   Object.assign(window, {
-    showNew, showPrep, showSales, showStock, showDone, showDoneSimple, showSettings,
-    openSales, lockSales,
-    addTempItem, removeTempItem, clearTempItems, addOrder,
-    upsertStock, deleteStockEncoded,
-    salesPrevMonth, salesNextMonth,
-    clearCompleted, clearAllData,
+    showNew,
+    showPrep,
+    showSales,
+    showStock,
+    showDone,
+    showDoneSimple,
+    showSettings,
+    openSales,
+    lockSales,
+    addTempItem,
+    removeTempItem,
+    clearTempItems,
+    addOrder,
+    upsertStock,
+    deleteStockEncoded,
+    salesPrevMonth,
+    salesNextMonth,
+    clearCompleted,
+    clearAllData,
     deleteCompleted,
-    removeOrder, setFrontaleOK, setPosterioreOK,
-    goPrev, goNext, ritiraDaMagazzino
+    removeOrder,
+    setFrontaleOK,
+    setPosterioreOK,
+    goPrev,
+    goNext,
+    ritiraDaMagazzino,
   });
-
 })();
