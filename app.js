@@ -1,20 +1,5 @@
 console.log("APP.JS CARICATO ✅");
 
-// =========================
-// SUPABASE (pronto, non ancora usato per sync)
-// =========================
-const SUPABASE_URL = "https://ldisjlsnshxgasopupvn.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkaXNqbHNuc2h4Z2Fzb3B1cHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MTI5NjMsImV4cCI6MjA4NDA4ODk2M30.n4zUsaL_VNA4pHMpxWa7hvUxrIrb17BIxJ03DXvzHOk";
-const supabase = window.supabase?.createClient
-  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : null;
-
-// =========================
-// PASSWORD SOLO VENDITE
-// =========================
-const SALES_PASS = "0000";
-const SALES_UNLOCK_KEY = "p3d_sales_unlocked";
-
 window.onerror = function(msg, url, line, col){
   alert("ERRORE JS: " + msg + "\nRiga: " + line + ":" + col);
 };
@@ -22,29 +7,19 @@ window.onerror = function(msg, url, line, col){
 (() => {
   "use strict";
 
-  // =========================
-  // STORAGE LOCALE (per ora)
-  // =========================
-  const LS_KEY_ORDERS = "ordini3d_orders_v4";
-  const LS_KEY_STOCK  = "ordini3d_stock_v1";
+  /* =========================
+     SUPABASE (ORDINI + STOCK)
+  ========================= */
+  const SUPABASE_URL = "https://ldisjlsnshxgasopupvn.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkaXNqbHNuc2h4Z2Fzb3B1cHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MTI5NjMsImV4cCI6MjA4NDA4ODk2M30.n4zUsaL_VNA4pHMpxWa7hvUxrIrb17BIxJ03DXvzHOk";
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  function loadJSON(key, fallback){
-    try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
-    catch { return fallback; }
-  }
-  function saveJSON(key, value){
-    localStorage.setItem(key, JSON.stringify(value));
-  }
+  const TBL_ORDERS = "orders_app";
+  const TBL_STOCK  = "stock_app";
 
-  let orders = loadJSON(LS_KEY_ORDERS, []);
-  let stock  = loadJSON(LS_KEY_STOCK, {});
-
-  function saveOrders(){ saveJSON(LS_KEY_ORDERS, orders); }
-  function saveStock(){ saveJSON(LS_KEY_STOCK, stock); }
-
-  // =========================
-  // CONFIG
-  // =========================
+  /* =========================
+     CONFIG
+  ========================= */
   const MS_24H = 24 * 60 * 60 * 1000;
 
   const FLOW = {
@@ -63,9 +38,9 @@ window.onerror = function(msg, url, line, col){
     { id: "COMPLETATO",   title: "🟢 Completato (24h)",   bg: "#dfffe6", border: "#33c26b" },
   ];
 
-  // =========================
-  // DOM + UTILS
-  // =========================
+  /* =========================
+     DOM + UTILS
+  ========================= */
   const $ = (id) => document.getElementById(id);
 
   function esc(s){
@@ -86,7 +61,6 @@ window.onerror = function(msg, url, line, col){
     const d = new Date(iso);
     return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
-  function touch(o){ o.updatedAt = new Date().toISOString(); }
   function uid(prefix="ord"){
     return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   }
@@ -95,38 +69,137 @@ window.onerror = function(msg, url, line, col){
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   }
 
-  // =========================
-  // NORMALIZE
-  // =========================
-  (function normalize(){
-    let changed = false;
+  /* =========================
+     DATA IN MEMORIA (caricata da Supabase)
+  ========================= */
+  let orders = []; // array di ordini "normalizzati" lato app
+  let stock  = {}; // { articolo: qty }
 
-    orders = (orders || []).map(o=>{
-      if(!o || typeof o !== "object"){ changed = true; return null; }
+  function nowISO(){ return new Date().toISOString(); }
 
-      if(!Object.values(FLOW).includes(o.flow)){
-        o.flow = FLOW.PREPARAZIONE;
-        changed = true;
-      }
-      if(typeof o.frontaleOK !== "boolean"){ o.frontaleOK = false; changed = true; }
-      if(typeof o.posterioreOK !== "boolean"){ o.posterioreOK = false; changed = true; }
-      if(!o.createdAt){ o.createdAt = new Date().toISOString(); changed = true; }
-      if(!o.updatedAt){ o.updatedAt = o.createdAt; changed = true; }
+  /* =========================
+     MAPPING DB <-> APP
+  ========================= */
+  function dbToOrder(r){
+    return {
+      id: r.id,
+      cliente: r.cliente ?? "",
+      sito: r.sito ?? "",
+      articolo: r.articolo ?? "",
+      prezzo: Number(r.prezzo ?? 0),
+      note: r.note ?? "",
+      flow: r.flow ?? FLOW.PREPARAZIONE,
+      frontaleOK: Boolean(r.frontale_ok),
+      posterioreOK: Boolean(r.posteriore_ok),
+      createdAt: r.created_at ?? null,
+      updatedAt: r.updated_at ?? r.created_at ?? null,
+      completedAt: r.completed_at ?? null,
+    };
+  }
 
-      if(o.flow === FLOW.COMPLETATO && !o.completedAt){
-        o.completedAt = o.updatedAt;
-        changed = true;
-      }
+  function orderToDb(o){
+    return {
+      id: o.id,
+      cliente: o.cliente ?? "",
+      sito: o.sito ?? "",
+      articolo: o.articolo ?? "",
+      prezzo: Number(o.prezzo ?? 0),
+      note: o.note ?? "",
+      flow: o.flow ?? FLOW.PREPARAZIONE,
+      frontale_ok: Boolean(o.frontaleOK),
+      posteriore_ok: Boolean(o.posterioreOK),
+      created_at: o.createdAt ?? nowISO(),
+      updated_at: o.updatedAt ?? nowISO(),
+      completed_at: o.completedAt ?? null,
+    };
+  }
 
-      return o;
-    }).filter(Boolean);
+  /* =========================
+     SUPABASE LOAD
+  ========================= */
+  async function loadOrdersFromDB(){
+    const { data, error } = await sb
+      .from(TBL_ORDERS)
+      .select("*")
+      .order("created_at", { ascending: false });
 
-    if(changed) saveOrders();
-  })();
+    if(error){
+      console.error("loadOrdersFromDB error:", error);
+      return;
+    }
+    orders = (data || []).map(dbToOrder);
 
-  // =========================
-  // NAV
-  // =========================
+    // refresh UI ovunque
+    refreshActiveTable();
+    renderBoard();
+    renderDone();
+    renderDoneSimple();
+    refreshSalesUI();
+  }
+
+  async function loadStockFromDB(){
+    const { data, error } = await sb
+      .from(TBL_STOCK)
+      .select("*");
+
+    if(error){
+      console.error("loadStockFromDB error:", error);
+      return;
+    }
+    const map = {};
+    (data || []).forEach(r => {
+      map[String(r.articolo ?? "").trim()] = Number(r.qty ?? 0);
+    });
+    stock = map;
+
+    renderStock();
+    renderBoard();
+  }
+
+  async function upsertOrderDB(o){
+    const payload = orderToDb(o);
+    const { error } = await sb.from(TBL_ORDERS).upsert(payload);
+    if(error) console.error("upsertOrderDB error:", error);
+  }
+
+  async function deleteOrderDB(id){
+    const { error } = await sb.from(TBL_ORDERS).delete().eq("id", id);
+    if(error) console.error("deleteOrderDB error:", error);
+  }
+
+  async function upsertStockDB(articolo, qty){
+    const payload = { articolo, qty: Number(qty ?? 0) };
+    const { error } = await sb.from(TBL_STOCK).upsert(payload);
+    if(error) console.error("upsertStockDB error:", error);
+  }
+
+  async function deleteStockDB(articolo){
+    const { error } = await sb.from(TBL_STOCK).delete().eq("articolo", articolo);
+    if(error) console.error("deleteStockDB error:", error);
+  }
+
+  /* =========================
+     REALTIME (aggiornamenti multi-device)
+  ========================= */
+  function startRealtime(){
+    // ordini
+    sb.channel("rt_orders_app")
+      .on("postgres_changes", { event: "*", schema: "public", table: TBL_ORDERS }, () => {
+        loadOrdersFromDB();
+      })
+      .subscribe();
+
+    // stock
+    sb.channel("rt_stock_app")
+      .on("postgres_changes", { event: "*", schema: "public", table: TBL_STOCK }, () => {
+        loadStockFromDB();
+      })
+      .subscribe();
+  }
+
+  /* =========================
+     NAV / PAGES
+  ========================= */
   function setActive(which){
     $("tab-new")?.classList.toggle("active", which==="new");
     $("tab-prep")?.classList.toggle("active", which==="prep");
@@ -185,30 +258,9 @@ window.onerror = function(msg, url, line, col){
     setActive("settings");
   }
 
-  // =========================
-  // PASSWORD SOLO VENDITE
-  // =========================
-  function openSales(){
-    const unlocked = sessionStorage.getItem(SALES_UNLOCK_KEY) === "1";
-    if(!unlocked){
-      const pass = prompt("Password Vendite:");
-      if((pass ?? "").trim() !== SALES_PASS){
-        alert("Password errata.");
-        return;
-      }
-      sessionStorage.setItem(SALES_UNLOCK_KEY, "1");
-    }
-    showSales();
-  }
-  function lockSales(){
-    sessionStorage.removeItem(SALES_UNLOCK_KEY);
-    alert("Vendite bloccate.");
-    showNew();
-  }
-
-  // =========================
-  // NUOVO ORDINE (multi-progetto)
-  // =========================
+  /* =========================
+     NUOVO ORDINE (multi-progetto)
+  ========================= */
   let tempItems = [];
 
   function addTempItem(){
@@ -277,7 +329,7 @@ window.onerror = function(msg, url, line, col){
     `;
   }
 
-  function addOrder(){
+  async function addOrder(){
     const cliente  = ($("cliente")?.value ?? "").trim();
     const sito     = ($("sito")?.value ?? "").trim();
     const articolo = ($("progetto")?.value ?? "").trim();
@@ -309,10 +361,11 @@ window.onerror = function(msg, url, line, col){
       return;
     }
 
-    const now = new Date().toISOString();
+    const now = nowISO();
 
-    finalItems.forEach(it=>{
-      orders.unshift({
+    // crea e salva su DB (una riga per progetto)
+    for(const it of finalItems){
+      const o = {
         id: uid("ord"),
         cliente, sito,
         articolo: it.articolo,
@@ -324,26 +377,26 @@ window.onerror = function(msg, url, line, col){
         createdAt: now,
         updatedAt: now,
         completedAt: null
-      });
-    });
+      };
+      await upsertOrderDB(o);
+    }
 
-    saveOrders();
-
+    // pulisci form
     ["cliente","sito","progetto","prezzo","note"].forEach(x=>{
       const el = $(x); if(el) el.value = "";
     });
     tempItems = [];
     renderTempItems();
 
+    // ricarica e vai produzione
+    await loadOrdersFromDB();
     showPrep();
-    refreshActiveTable();
-    refreshSalesUI();
   }
 
-  // =========================
-  // MAGAZZINO
-  // =========================
-  function upsertStock(){
+  /* =========================
+     MAGAZZINO
+  ========================= */
+  async function upsertStock(){
     const art = ($("stkArticolo")?.value ?? "").trim();
     const qtyRaw = ($("stkQty")?.value ?? "").trim();
 
@@ -351,21 +404,18 @@ window.onerror = function(msg, url, line, col){
     const qty = Number(qtyRaw);
     if(!Number.isFinite(qty) || qty < 0){ alert("Quantità non valida (>= 0)."); return; }
 
-    stock[art] = Math.floor(qty);
-    saveStock();
+    await upsertStockDB(art, Math.floor(qty));
     $("stkArticolo").value = "";
     $("stkQty").value = "";
-    renderStock();
-    renderBoard();
+
+    await loadStockFromDB();
   }
 
-  function deleteStockEncoded(encodedKey){
+  async function deleteStockEncoded(encodedKey){
     const art = decodeURIComponent(encodedKey);
     if(!confirm("Eliminare questo articolo dal magazzino?")) return;
-    delete stock[art];
-    saveStock();
-    renderStock();
-    renderBoard();
+    await deleteStockDB(art);
+    await loadStockFromDB();
   }
 
   function renderStock(){
@@ -394,9 +444,11 @@ window.onerror = function(msg, url, line, col){
     });
   }
 
-  // =========================
-  // PRODUZIONE
-  // =========================
+  /* =========================
+     PRODUZIONE (LOGICA)
+  ========================= */
+  function touch(o){ o.updatedAt = nowISO(); }
+
   function autoToAssemblaggio(o){
     if(o.flow === FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK){
       o.flow = FLOW.ASSEMBLAGGIO;
@@ -404,29 +456,27 @@ window.onerror = function(msg, url, line, col){
     }
   }
 
-  function setFrontaleOK(id){
+  async function setFrontaleOK(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
     o.frontaleOK = true;
     touch(o);
     autoToAssemblaggio(o);
-    saveOrders();
-    renderBoard();
-    refreshActiveTable();
+    await upsertOrderDB(o);
+    await loadOrdersFromDB();
   }
 
-  function setPosterioreOK(id){
+  async function setPosterioreOK(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
     o.posterioreOK = true;
     touch(o);
     autoToAssemblaggio(o);
-    saveOrders();
-    renderBoard();
-    refreshActiveTable();
+    await upsertOrderDB(o);
+    await loadOrdersFromDB();
   }
 
-  function ritiraDaMagazzino(id){
+  async function ritiraDaMagazzino(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
 
@@ -438,25 +488,27 @@ window.onerror = function(msg, url, line, col){
       return;
     }
 
-    stock[art] = qty - 1;
-    saveStock();
+    // scala stock
+    await upsertStockDB(art, qty - 1);
 
+    // salta stampa -> spedizione
     o.flow = FLOW.SPEDIZIONE;
     o.frontaleOK = true;
     o.posterioreOK = true;
     touch(o);
 
-    saveOrders();
-    renderBoard();
-    renderStock();
-    refreshActiveTable();
+    await upsertOrderDB(o);
+
+    await loadStockFromDB();
+    await loadOrdersFromDB();
   }
 
-  function goPrev(id){
+  async function goPrev(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
 
     if(o.flow === FLOW.SPEDIZIONE){
+      // FIX: torna in ordini ricevuti (PREPARAZIONE) con possibilità di eliminarlo
       o.flow = FLOW.PREPARAZIONE;
     } else if(o.flow === FLOW.COMPLETATO){
       o.flow = FLOW.SPEDIZIONE;
@@ -466,13 +518,11 @@ window.onerror = function(msg, url, line, col){
     }
 
     touch(o);
-    saveOrders();
-    renderBoard();
-    refreshActiveTable();
-    refreshSalesUI();
+    await upsertOrderDB(o);
+    await loadOrdersFromDB();
   }
 
-  function goNext(id){
+  async function goNext(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
 
@@ -480,23 +530,18 @@ window.onerror = function(msg, url, line, col){
       o.flow = FLOW.SPEDIZIONE;
     } else if(o.flow === FLOW.SPEDIZIONE){
       o.flow = FLOW.COMPLETATO;
-      o.completedAt = new Date().toISOString();
+      o.completedAt = nowISO();
     }
 
     touch(o);
-    saveOrders();
-    renderBoard();
-    refreshActiveTable();
-    refreshSalesUI();
+    await upsertOrderDB(o);
+    await loadOrdersFromDB();
   }
 
-  function removeOrder(id){
+  async function removeOrder(id){
     if(!confirm("Eliminare questo ordine?")) return;
-    orders = orders.filter(x=>x.id!==id);
-    saveOrders();
-    renderBoard();
-    refreshActiveTable();
-    refreshSalesUI();
+    await deleteOrderDB(id);
+    await loadOrdersFromDB();
   }
 
   function inCol(o, colId){
@@ -508,8 +553,10 @@ window.onerror = function(msg, url, line, col){
     if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
     if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
 
+    // Ordini ricevuti: tutti quelli in PREPARAZIONE
     if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
 
+    // Colonne stampa: solo se ancora in PREPARAZIONE
     if(o.flow !== FLOW.PREPARAZIONE) return false;
     if(colId === "FRONTALE") return !o.frontaleOK;
     if(colId === "POSTERIORE") return !o.posterioreOK;
@@ -617,9 +664,9 @@ window.onerror = function(msg, url, line, col){
     });
   }
 
-  // =========================
-  // ORDINI ATTIVI
-  // =========================
+  /* =========================
+     ORDINI ATTIVI (TAB NUUOVO ORDINE)
+  ========================= */
   function statusLabel(o){
     if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill"};
     if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill"};
@@ -659,14 +706,19 @@ window.onerror = function(msg, url, line, col){
     });
   }
 
-  // =========================
-  // VENDITE (CALENDARIO) - BASE
-  // =========================
+  /* =========================
+     VENDITE (PASSWORD SOLO QUI)
+  ========================= */
+  const SALES_UNLOCK_KEY = "p3d_sales_unlocked";
+  const SALES_PASSWORD = "0000";
+
   let salesMonthCursor = new Date();
   let salesSelectedDayKey = null;
 
   function getCompletedAll(){
-    return orders.filter(o=>o.flow === FLOW.COMPLETATO).slice()
+    return orders
+      .filter(o=>o.flow === FLOW.COMPLETATO)
+      .slice()
       .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
   }
 
@@ -678,6 +730,25 @@ window.onerror = function(msg, url, line, col){
       map.get(k).push(o);
     });
     return map;
+  }
+
+  function openSales(){
+    const unlocked = sessionStorage.getItem(SALES_UNLOCK_KEY) === "1";
+    if(!unlocked){
+      const pass = prompt("Password Vendite:");
+      if(pass !== SALES_PASSWORD){
+        alert("Password errata.");
+        return;
+      }
+      sessionStorage.setItem(SALES_UNLOCK_KEY, "1");
+    }
+    showSales();
+  }
+
+  function lockSales(){
+    sessionStorage.removeItem(SALES_UNLOCK_KEY);
+    alert("Vendite bloccate.");
+    showNew();
   }
 
   function salesPrevMonth(){
@@ -703,7 +774,9 @@ window.onerror = function(msg, url, line, col){
     const monthNames = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
     monthLabel.textContent = `${monthNames[salesMonthCursor.getMonth()]} ${salesMonthCursor.getFullYear()}`;
 
-    dow.innerHTML = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"].map(x=>`<div class="muted" style="width:40px">${x}</div>`).join("");
+    dow.innerHTML = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"]
+      .map(x=>`<div class="muted" style="width:40px">${x}</div>`)
+      .join("");
 
     const all = getCompletedAll();
     const byDay = groupByDay(all);
@@ -713,7 +786,7 @@ window.onerror = function(msg, url, line, col){
     const first = new Date(y, m, 1);
     const last = new Date(y, m+1, 0);
 
-    const firstJsDow = first.getDay(); // 0..6
+    const firstJsDow = first.getDay();
     const firstIsoDow = firstJsDow === 0 ? 7 : firstJsDow;
     const padCells = firstIsoDow - 1;
 
@@ -775,13 +848,20 @@ window.onerror = function(msg, url, line, col){
     `;
   }
 
-  function printSelectedDay(){ window.print(); }
-  function printCurrentMonth(){ window.print(); }
-  function printRange(){ window.print(); }
+  // Se nel tuo index hai bottoni stampa, li lasciamo disponibili.
+  function printSelectedDay(){
+    alert("Stampa: funzione non attiva in questa versione (possiamo aggiungerla).");
+  }
+  function printCurrentMonth(){
+    alert("Stampa: funzione non attiva in questa versione (possiamo aggiungerla).");
+  }
+  function printRange(){
+    alert("Stampa: funzione non attiva in questa versione (possiamo aggiungerla).");
+  }
 
-  // =========================
-  // COMPLETATI LISTE
-  // =========================
+  /* =========================
+     COMPLETATI (liste + pulizia memoria)
+  ========================= */
   function renderDone(){
     const tbody = $("doneTbody");
     if(!tbody) return;
@@ -831,50 +911,55 @@ window.onerror = function(msg, url, line, col){
     });
   }
 
-  function deleteCompleted(id){
+  async function deleteCompleted(id){
     const o = orders.find(x=>x.id===id);
     if(!o || o.flow !== FLOW.COMPLETATO) return;
     if(!confirm("Eliminare questo completato dalla memoria?")) return;
-    orders = orders.filter(x=>x.id !== id);
-    saveOrders();
-    renderDone();
-    renderDoneSimple();
-    refreshSalesUI();
+    await deleteOrderDB(id);
+    await loadOrdersFromDB();
   }
 
-  function clearCompleted(){
+  async function clearCompleted(){
     if(!confirm("Cancellare TUTTI gli ordini completati?")) return;
-    orders = orders.filter(o=>o.flow !== FLOW.COMPLETATO);
-    saveOrders();
-    renderDone();
-    renderDoneSimple();
-    refreshSalesUI();
-    renderBoard();
-    refreshActiveTable();
+    const ids = orders.filter(o=>o.flow === FLOW.COMPLETATO).map(o=>o.id);
+    if(ids.length === 0) return;
+
+    // cancella in blocco
+    const { error } = await sb.from(TBL_ORDERS).delete().in("id", ids);
+    if(error) console.error("clearCompleted error:", error);
+
+    await loadOrdersFromDB();
   }
 
-  function clearAllData(){
+  async function clearAllData(){
     if(!confirm("RESET TUTTO? (ordini + magazzino)")) return;
-    orders = [];
-    stock = {};
+
+    const { error: e1 } = await sb.from(TBL_ORDERS).delete().neq("id", "___never___");
+    if(e1) console.error("clearAllData orders error:", e1);
+
+    const { error: e2 } = await sb.from(TBL_STOCK).delete().neq("articolo", "___never___");
+    if(e2) console.error("clearAllData stock error:", e2);
+
     tempItems = [];
-    saveOrders();
-    saveStock();
-    renderTempItems();
-    renderStock();
-    renderBoard();
-    refreshActiveTable();
-    refreshSalesUI();
-    renderDone();
-    renderDoneSimple();
+    await loadStockFromDB();
+    await loadOrdersFromDB();
     alert("Reset completato.");
   }
 
-  // =========================
-  // START
-  // =========================
-  document.addEventListener("DOMContentLoaded", () => {
+  /* =========================
+     START
+  ========================= */
+  document.addEventListener("DOMContentLoaded", async () => {
     showNew();
+
+    // carica DB
+    await loadStockFromDB();
+    await loadOrdersFromDB();
+
+    // realtime multi device
+    startRealtime();
+
+    // aggiorna tabella attivi se sei su Nuovo ordine
     setInterval(() => {
       const pageNew = $("page-new");
       if(pageNew && !pageNew.classList.contains("hide")){
@@ -883,22 +968,22 @@ window.onerror = function(msg, url, line, col){
     }, 2000);
   });
 
-  // =========================
-  // EXPORT
-  // =========================
+  /* =========================
+     EXPORT (per onclick HTML)
+  ========================= */
   Object.assign(window, {
-    // nav
-    showNew, showPrep, openSales, lockSales, showStock, showDone, showDoneSimple, showSettings,
-    // new order
+    showNew, showPrep, showSales, showStock, showDone, showDoneSimple, showSettings,
+    openSales, lockSales,
+    salesPrevMonth, salesNextMonth,
     addTempItem, removeTempItem, clearTempItems, addOrder,
-    // stock
     upsertStock, deleteStockEncoded,
-    // settings
     clearCompleted, clearAllData,
-    // board actions
-    removeOrder, setFrontaleOK, setPosterioreOK, ritiraDaMagazzino, goPrev, goNext,
-    // sales
-    salesPrevMonth, salesNextMonth, printSelectedDay, printCurrentMonth, printRange,
+    deleteCompleted,
+    // bottoni creati nel render:
+    removeOrder, setFrontaleOK, setPosterioreOK, ritiraDaMagazzino,
+    goPrev, goNext,
+    // stampa (se presenti)
+    printSelectedDay, printCurrentMonth, printRange,
   });
 
 })();
