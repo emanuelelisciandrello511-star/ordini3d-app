@@ -107,20 +107,22 @@
 <header>
   <div class="row">
     <h1>Pianeta 3D – Laboratorio</h1>
+
     <div class="tabs">
-      <button class="tab active" onclick="showNew()">Nuovo ordine</button>
-      <button class="tab" onclick="showPrep()">Produzione</button>
-      <button class="tab" onclick="openSales()">Vendite</button>
-      <button class="tab" onclick="showStock()">Magazzino</button>
-      <button class="tab" onclick="showDone()">Completati</button>
-      <button class="tab" onclick="showDoneSimple()">Completati (semplice)</button>
-      <button class="tab" onclick="showSettings()">Impostazioni</button>
+      <button id="tab-new" class="tab active" onclick="showNew()">Nuovo ordine</button>
+      <button id="tab-prep" class="tab" onclick="showPrep()">Produzione</button>
+      <button id="tab-sales" class="tab" onclick="openSales()">Vendite</button>
+      <button id="tab-stock" class="tab" onclick="showStock()">Magazzino</button>
+      <button id="tab-done" class="tab" onclick="showDone()">Completati</button>
+      <button id="tab-done-simple" class="tab" onclick="showDoneSimple()">Completati (semplice)</button>
+      <button id="tab-settings" class="tab" onclick="showSettings()">Impostazioni</button>
     </div>
   </div>
 </header>
 
 <div class="wrap">
 
+  <!-- NUOVO ORDINE -->
   <div id="page-new" class="panel">
     <div class="stack">
       <input id="cliente" placeholder="Cliente">
@@ -146,40 +148,74 @@
     </table>
   </div>
 
+  <!-- PRODUZIONE -->
   <div id="page-prep" class="hide">
     <div class="panel">
       <div class="board" id="board"></div>
     </div>
   </div>
 
-  <div id="page-sales" class="hide"><div class="panel">
-    <h3>Vendite</h3>
-    <div id="salesCal"></div>
-  </div></div>
+  <!-- VENDITE -->
+  <div id="page-sales" class="hide">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Vendite</h3>
+        <button class="small danger" onclick="lockSales()">Blocca vendite</button>
+      </div>
 
-  <div id="page-stock" class="hide"><div class="panel">
-    <input id="stkArticolo" placeholder="Numero progetto">
-    <input id="stkQty" type="number" placeholder="Quantità">
-    <button onclick="upsertStock()">Salva</button>
-    <table><tbody id="stockTbody"></tbody></table>
-  </div></div>
+      <div class="row" style="justify-content:flex-start;align-items:center;margin-top:10px">
+        <button class="small" onclick="salesPrevMonth()">←</button>
+        <b id="salesMonthLabel" style="margin:0 8px">Mese</b>
+        <button class="small" onclick="salesNextMonth()">→</button>
+      </div>
 
-  <div id="page-done" class="hide"><div class="panel">
-    <table><tbody id="doneTbody"></tbody></table>
-  </div></div>
+      <div id="salesDow" class="row" style="margin-top:10px"></div>
 
-  <div id="page-done-simple" class="hide"><div class="panel">
-    <table><tbody id="doneSimpleTbody"></tbody></table>
-  </div></div>
+      <div id="salesCal"
+           style="display:grid;grid-template-columns:repeat(7, minmax(40px,1fr));gap:6px;margin-top:6px">
+      </div>
 
-  <div id="page-settings" class="hide"><div class="panel">
-    <button onclick="clearCompleted()">Cancella completati</button>
-    <button onclick="clearAllData()">RESET TOTALE</button>
-  </div></div>
+      <hr>
+      <b id="salesSelectedLabel">Dettaglio giorno:</b>
+      <div id="salesDayDetails" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- MAGAZZINO -->
+  <div id="page-stock" class="hide">
+    <div class="panel">
+      <input id="stkArticolo" placeholder="Numero progetto">
+      <input id="stkQty" type="number" placeholder="Quantità">
+      <button onclick="upsertStock()">Salva</button>
+      <table><tbody id="stockTbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- COMPLETATI -->
+  <div id="page-done" class="hide">
+    <div class="panel">
+      <table><tbody id="doneTbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- COMPLETATI SEMPLICE -->
+  <div id="page-done-simple" class="hide">
+    <div class="panel">
+      <table><tbody id="doneSimpleTbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- IMPOSTAZIONI -->
+  <div id="page-settings" class="hide">
+    <div class="panel">
+      <button onclick="clearCompleted()">Cancella completati</button>
+      <button onclick="clearAllData()">RESET TOTALE</button>
+    </div>
+  </div>
 
 </div>
 
-<!-- ⚠️ UNA SOLA VOLTA -->
+<!-- SUPABASE + APP -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="app.js"></script>
 
