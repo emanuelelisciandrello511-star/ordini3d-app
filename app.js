@@ -1,3 +1,12 @@
+/* =========================================================
+   Pianeta 3D – Laboratorio (Supabase Realtime)
+   - Multi-utente (Realtime)
+   - Password SOLO Vendite (0000)
+   - Board a colonne colorate
+   - Completati visibili in board solo 24h
+   - Pagine: Magazzino, Completati, Completati semplice, Impostazioni
+   ========================================================= */
+
 console.log("APP.JS CARICATO ✅");
 
 window.onerror = function(msg, url, line, col, err){
@@ -8,14 +17,18 @@ window.onerror = function(msg, url, line, col, err){
   "use strict";
 
   /* =========================
-     SUPABASE (Realtime)
+     SUPABASE SETUP
+     Metti qui i tuoi valori:
+     - URL: https://xxxxx.supabase.co
+     - ANON KEY: eyJhbGciOi...
   ========================= */
-  const SUPABASE_URL = "https://ldisjlsnshxgasopupvn.supabase.co";
-  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxkaXNqbHNuc2h4Z2Fzb3B1cHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MTI5NjMsImV4cCI6MjA4NDA4ODk2M30.n4zUsaL_VNA4pHMpxWa7hvUxrIrb17BIxJ03DXvzHOk";
+  const SUPABASE_URL = "INCOLLA_QUI_SUPABASE_URL";
+  const SUPABASE_ANON_KEY = "INCOLLA_QUI_SUPABASE_ANON_KEY";
 
-  // ⚠️ Non dichiarare "const supabase =" (causa: already declared)
+  // ✅ evita "Identifier 'supabase' has already been declared"
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+  // Tabelle (come create via SQL)
   const TBL_ORDERS = "orders_app";
   const TBL_STOCK  = "stock_app";
 
@@ -67,37 +80,27 @@ window.onerror = function(msg, url, line, col, err){
     const d = new Date(iso);
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   }
-  function touch(o){ o.updatedAt = new Date().toISOString(); }
   function uid(prefix="ord"){
-    // id TEXT in tabella -> lo generiamo noi
     if (crypto?.randomUUID) return `${prefix}_${crypto.randomUUID()}`;
     return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   }
 
-  function toDbOrder(o){
-    return {
-      id: o.id,
-      cliente: o.cliente ?? null,
-      sito: o.sito ?? null,
-      articolo: o.articolo ?? null,
-      prezzo: (o.prezzo ?? null),
-      note: o.note ?? null,
-      flow: o.flow ?? FLOW.PREPARAZIONE,
-      frontale_ok: !!o.frontaleOK,
-      posteriore_ok: !!o.posterioreOK,
-      created_at: o.createdAt ?? null,
-      updated_at: o.updatedAt ?? null,
-      completed_at: o.completedAt ?? null,
-    };
-  }
+  /* =========================
+     STATE
+  ========================= */
+  let orders = [];
+  let stock  = {}; // {articolo: qty}
 
+  /* =========================
+     MAPPING DB <-> APP
+  ========================= */
   function fromDbOrder(r){
     return {
       id: r.id,
       cliente: r.cliente ?? "",
       sito: r.sito ?? "",
       articolo: r.articolo ?? "",
-      prezzo: (r.prezzo ?? 0),
+      prezzo: r.prezzo ?? 0,
       note: r.note ?? "",
       flow: r.flow ?? FLOW.PREPARAZIONE,
       frontaleOK: !!r.frontale_ok,
@@ -108,23 +111,25 @@ window.onerror = function(msg, url, line, col, err){
     };
   }
 
-  function toDbStock(stockObj){
-    // stockObj: { [articolo]: qty }
-    // -> [{articolo, qty}]
-    return Object.keys(stockObj).map(k => ({
-      articolo: k,
-      qty: Number(stockObj[k] ?? 0)
-    }));
+  function toDbOrder(o){
+    return {
+      id: o.id,
+      cliente: o.cliente ?? null,
+      sito: o.sito ?? null,
+      articolo: o.articolo ?? null,
+      prezzo: o.prezzo ?? null,
+      note: o.note ?? null,
+      flow: o.flow ?? FLOW.PREPARAZIONE,
+      frontale_ok: !!o.frontaleOK,
+      posteriore_ok: !!o.posterioreOK,
+      created_at: o.createdAt ?? null,
+      updated_at: o.updatedAt ?? null,
+      completed_at: o.completedAt ?? null,
+    };
   }
 
   /* =========================
-     STATE (in memoria)
-  ========================= */
-  let orders = [];
-  let stock  = {}; // { articolo: qty }
-
-  /* =========================
-     FETCH da Supabase
+     SUPABASE FETCH
   ========================= */
   async function fetchOrders(){
     const { data, error } = await sb
@@ -133,61 +138,56 @@ window.onerror = function(msg, url, line, col, err){
       .order("created_at", { ascending: false });
 
     if(error){
-      console.error("fetchOrders error:", error);
+      console.error("fetchOrders:", error);
+      alert("Supabase: non riesco a leggere orders_app (vedi Console).");
       return;
     }
     orders = (data || []).map(fromDbOrder);
+    rerenderAll();
+  }
 
-    // render a cascata
+  async function fetchStock(){
+    const { data, error } = await sb.from(TBL_STOCK).select("*");
+    if(error){
+      console.error("fetchStock:", error);
+      alert("Supabase: non riesco a leggere stock_app (vedi Console).");
+      return;
+    }
+    const obj = {};
+    (data || []).forEach(r => obj[r.articolo] = Number(r.qty ?? 0));
+    stock = obj;
+    renderStock();
+    renderBoard();
+  }
+
+  function rerenderAll(){
     refreshActiveTable();
     renderBoard();
+    renderStock();
     renderDone();
     renderDoneSimple();
     refreshSalesUI();
   }
 
-  async function fetchStock(){
-    const { data, error } = await sb
-      .from(TBL_STOCK)
-      .select("*");
-
-    if(error){
-      console.error("fetchStock error:", error);
-      return;
-    }
-    const obj = {};
-    (data || []).forEach(r => { obj[r.articolo] = Number(r.qty ?? 0); });
-    stock = obj;
-
-    renderStock();
-    renderBoard();
-  }
-
-  // Debounce per realtime (evita 20 refresh)
-  let _tOrders = null;
-  function fetchOrdersDebounced(){
-    clearTimeout(_tOrders);
-    _tOrders = setTimeout(fetchOrders, 200);
-  }
-  let _tStock = null;
-  function fetchStockDebounced(){
-    clearTimeout(_tStock);
-    _tStock = setTimeout(fetchStock, 200);
-  }
-
   /* =========================
-     REALTIME SUBSCRIPTIONS
+     REALTIME
   ========================= */
+  let t1=null, t2=null;
+  const debounce = (fn, ms, key) => {
+    if(key===1){ clearTimeout(t1); t1=setTimeout(fn,ms); }
+    else { clearTimeout(t2); t2=setTimeout(fn,ms); }
+  };
+
   function startRealtime(){
     sb.channel("rt_orders_app")
-      .on("postgres_changes", { event: "*", schema: "public", table: TBL_ORDERS }, () => {
-        fetchOrdersDebounced();
+      .on("postgres_changes", { event:"*", schema:"public", table:TBL_ORDERS }, () => {
+        debounce(fetchOrders, 200, 1);
       })
       .subscribe();
 
     sb.channel("rt_stock_app")
-      .on("postgres_changes", { event: "*", schema: "public", table: TBL_STOCK }, () => {
-        fetchStockDebounced();
+      .on("postgres_changes", { event:"*", schema:"public", table:TBL_STOCK }, () => {
+        debounce(fetchStock, 200, 2);
       })
       .subscribe();
   }
@@ -204,12 +204,10 @@ window.onerror = function(msg, url, line, col, err){
     $("tab-done-simple")?.classList.toggle("active", which==="doneSimple");
     $("tab-settings")?.classList.toggle("active", which==="settings");
   }
-
   function hideAllPages(){
     ["page-new","page-prep","page-sales","page-stock","page-done","page-done-simple","page-settings"]
       .forEach(id => $(id)?.classList.add("hide"));
   }
-
   function showNew(){
     hideAllPages();
     $("page-new")?.classList.remove("hide");
@@ -217,42 +215,36 @@ window.onerror = function(msg, url, line, col, err){
     refreshActiveTable();
     renderTempItems();
   }
-
   function showPrep(){
     hideAllPages();
     $("page-prep")?.classList.remove("hide");
     setActive("prep");
     renderBoard();
   }
-
   function showSales(){
     hideAllPages();
     $("page-sales")?.classList.remove("hide");
     setActive("sales");
     refreshSalesUI();
   }
-
   function showStock(){
     hideAllPages();
     $("page-stock")?.classList.remove("hide");
     setActive("stock");
     renderStock();
   }
-
   function showDone(){
     hideAllPages();
     $("page-done")?.classList.remove("hide");
     setActive("done");
     renderDone();
   }
-
   function showDoneSimple(){
     hideAllPages();
     $("page-done-simple")?.classList.remove("hide");
     setActive("doneSimple");
     renderDoneSimple();
   }
-
   function showSettings(){
     hideAllPages();
     $("page-settings")?.classList.remove("hide");
@@ -260,7 +252,7 @@ window.onerror = function(msg, url, line, col, err){
   }
 
   /* =========================
-     VENDITE: PASSWORD SOLO QUI
+     VENDITE PASSWORD (solo qui)
   ========================= */
   const SALES_UNLOCK_KEY = "p3d_sales_unlock";
   const SALES_PASSWORD = "0000";
@@ -285,7 +277,7 @@ window.onerror = function(msg, url, line, col, err){
   }
 
   /* =========================
-     NUOVO ORDINE (multi-progetto)
+     NUOVO ORDINE MULTI-PROGETTO
   ========================= */
   let tempItems = [];
 
@@ -302,9 +294,7 @@ window.onerror = function(msg, url, line, col, err){
       alert("Prezzo non valido.");
       return;
     }
-
     tempItems.push({ id: uid("tmp"), articolo, prezzo });
-
     $("progetto").value = "";
     $("prezzo").value = "";
     renderTempItems();
@@ -314,6 +304,7 @@ window.onerror = function(msg, url, line, col, err){
     tempItems = tempItems.filter(x=>x.id !== id);
     renderTempItems();
   }
+
   function clearTempItems(){
     tempItems = [];
     renderTempItems();
@@ -327,7 +318,6 @@ window.onerror = function(msg, url, line, col, err){
       wrap.innerHTML = `<div class="muted">Nessun progetto in lista (puoi inviare anche solo quello nei campi sopra).</div>`;
       return;
     }
-
     const total = tempItems.reduce((s,x)=>s + (Number(x.prezzo)||0), 0);
 
     wrap.innerHTML = `
@@ -405,8 +395,8 @@ window.onerror = function(msg, url, line, col, err){
 
     const { error } = await sb.from(TBL_ORDERS).insert(rows);
     if(error){
-      console.error("insert orders error:", error);
-      alert("Errore salvataggio su Supabase. Controlla console.");
+      console.error("insert orders:", error);
+      alert("Errore inserimento ordini (vedi Console).");
       return;
     }
 
@@ -415,9 +405,7 @@ window.onerror = function(msg, url, line, col, err){
     });
     tempItems = [];
     renderTempItems();
-
-    // realtime aggiorna tutti, ma aggiorniamo subito anche localmente
-    showPrep();
+    showPrep(); // realtime aggiorna tutti
   }
 
   /* =========================
@@ -431,18 +419,19 @@ window.onerror = function(msg, url, line, col, err){
     const qty = Number(qtyRaw);
     if(!Number.isFinite(qty) || qty < 0){ alert("Quantità non valida (>= 0)."); return; }
 
-    const row = { articolo: art, qty: Math.floor(qty) };
-    const { error } = await sb.from(TBL_STOCK).upsert(row, { onConflict: "articolo" });
+    const { error } = await sb.from(TBL_STOCK).upsert(
+      { articolo: art, qty: Math.floor(qty) },
+      { onConflict: "articolo" }
+    );
 
     if(error){
-      console.error("upsert stock error:", error);
-      alert("Errore salvataggio magazzino. Controlla console.");
+      console.error("upsert stock:", error);
+      alert("Errore magazzino (vedi Console).");
       return;
     }
 
     $("stkArticolo").value = "";
     $("stkQty").value = "";
-    // realtime farà il resto
   }
 
   async function deleteStockEncoded(encodedKey){
@@ -451,9 +440,8 @@ window.onerror = function(msg, url, line, col, err){
 
     const { error } = await sb.from(TBL_STOCK).delete().eq("articolo", art);
     if(error){
-      console.error("delete stock error:", error);
-      alert("Errore eliminazione magazzino. Controlla console.");
-      return;
+      console.error("delete stock:", error);
+      alert("Errore eliminazione magazzino.");
     }
   }
 
@@ -486,27 +474,27 @@ window.onerror = function(msg, url, line, col, err){
   /* =========================
      PRODUZIONE / FLOW
   ========================= */
-  function autoToAssemblaggio(o){
+  function nowIso(){ return new Date().toISOString(); }
+
+  function autoToAssemblaggioLocal(o){
     if(o.flow === FLOW.PREPARAZIONE && o.frontaleOK && o.posterioreOK){
       o.flow = FLOW.ASSEMBLAGGIO;
-      touch(o);
+      o.updatedAt = nowIso();
     }
   }
 
-  async function updateOrder(id, patch){
+  async function patchOrder(id, patch){
     const dbPatch = {};
-    // mappiamo solo quello che ci serve
     if("flow" in patch) dbPatch.flow = patch.flow;
     if("frontaleOK" in patch) dbPatch.frontale_ok = !!patch.frontaleOK;
     if("posterioreOK" in patch) dbPatch.posteriore_ok = !!patch.posterioreOK;
     if("completedAt" in patch) dbPatch.completed_at = patch.completedAt;
     if("updatedAt" in patch) dbPatch.updated_at = patch.updatedAt;
-    if("note" in patch) dbPatch.note = patch.note;
 
     const { error } = await sb.from(TBL_ORDERS).update(dbPatch).eq("id", id);
     if(error){
-      console.error("update order error:", error);
-      alert("Errore aggiornamento ordine. Controlla console.");
+      console.error("patchOrder:", error);
+      alert("Errore aggiornamento ordine (vedi Console).");
     }
   }
 
@@ -514,58 +502,51 @@ window.onerror = function(msg, url, line, col, err){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
     o.frontaleOK = true;
-    touch(o);
-    autoToAssemblaggio(o);
+    o.updatedAt = nowIso();
+    autoToAssemblaggioLocal(o);
 
-    await updateOrder(id, {
-      frontaleOK: o.frontaleOK,
-      flow: o.flow,
-      updatedAt: o.updatedAt
-    });
+    await patchOrder(id, { frontaleOK:o.frontaleOK, flow:o.flow, updatedAt:o.updatedAt });
   }
 
   async function setPosterioreOK(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
     o.posterioreOK = true;
-    touch(o);
-    autoToAssemblaggio(o);
+    o.updatedAt = nowIso();
+    autoToAssemblaggioLocal(o);
 
-    await updateOrder(id, {
-      posterioreOK: o.posterioreOK,
-      flow: o.flow,
-      updatedAt: o.updatedAt
-    });
+    await patchOrder(id, { posterioreOK:o.posterioreOK, flow:o.flow, updatedAt:o.updatedAt });
   }
 
   async function ritiraDaMagazzino(id){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
 
-    const art = String(o.articolo || "").trim();
+    const art = String(o.articolo||"").trim();
     const qty = Number(stock[art] ?? 0);
-
     if(qty <= 0){
       alert("Magazzino: giacenza ZERO per questo progetto.");
       return;
     }
 
-    // 1) scala magazzino
-    const newQty = qty - 1;
-    const { error: e1 } = await sb.from(TBL_STOCK).upsert({ articolo: art, qty: newQty }, { onConflict: "articolo" });
+    // scala stock
+    const { error: e1 } = await sb.from(TBL_STOCK).upsert(
+      { articolo: art, qty: qty-1 },
+      { onConflict: "articolo" }
+    );
     if(e1){
-      console.error("ritiro stock error:", e1);
+      console.error("ritira stock:", e1);
       alert("Errore aggiornamento magazzino.");
       return;
     }
 
-    // 2) manda ordine in spedizione
+    // ordine -> spedizione
     o.flow = FLOW.SPEDIZIONE;
     o.frontaleOK = true;
     o.posterioreOK = true;
-    touch(o);
+    o.updatedAt = nowIso();
 
-    await updateOrder(o.id, {
+    await patchOrder(o.id, {
       flow: o.flow,
       frontaleOK: o.frontaleOK,
       posterioreOK: o.posterioreOK,
@@ -577,9 +558,8 @@ window.onerror = function(msg, url, line, col, err){
     const o = orders.find(x=>x.id===id);
     if(!o) return;
 
-    // ✅ richiesto: da SPEDIZIONE torna in ORDINI RICEVUTI
     if(o.flow === FLOW.SPEDIZIONE){
-      o.flow = FLOW.PREPARAZIONE;
+      o.flow = FLOW.PREPARAZIONE; // FIX richiesto
     } else if(o.flow === FLOW.COMPLETATO){
       o.flow = FLOW.SPEDIZIONE;
       o.completedAt = null;
@@ -587,12 +567,8 @@ window.onerror = function(msg, url, line, col, err){
       o.flow = FLOW.PREPARAZIONE;
     }
 
-    touch(o);
-    await updateOrder(o.id, {
-      flow: o.flow,
-      completedAt: o.completedAt,
-      updatedAt: o.updatedAt
-    });
+    o.updatedAt = nowIso();
+    await patchOrder(o.id, { flow:o.flow, completedAt:o.completedAt ?? null, updatedAt:o.updatedAt });
   }
 
   async function goNext(id){
@@ -603,23 +579,19 @@ window.onerror = function(msg, url, line, col, err){
       o.flow = FLOW.SPEDIZIONE;
     } else if(o.flow === FLOW.SPEDIZIONE){
       o.flow = FLOW.COMPLETATO;
-      o.completedAt = new Date().toISOString();
+      o.completedAt = nowIso();
     }
 
-    touch(o);
-    await updateOrder(o.id, {
-      flow: o.flow,
-      completedAt: o.completedAt,
-      updatedAt: o.updatedAt
-    });
+    o.updatedAt = nowIso();
+    await patchOrder(o.id, { flow:o.flow, completedAt:o.completedAt ?? null, updatedAt:o.updatedAt });
   }
 
   async function removeOrder(id){
     if(!confirm("Eliminare questo ordine?")) return;
     const { error } = await sb.from(TBL_ORDERS).delete().eq("id", id);
     if(error){
-      console.error("delete order error:", error);
-      alert("Errore eliminazione ordine. Controlla console.");
+      console.error("delete order:", error);
+      alert("Errore eliminazione ordine.");
     }
   }
 
@@ -631,13 +603,11 @@ window.onerror = function(msg, url, line, col, err){
     }
     if(colId === "SPEDIZIONE") return o.flow === FLOW.SPEDIZIONE;
     if(colId === "ASSEMBLAGGIO") return o.flow === FLOW.ASSEMBLAGGIO;
-
     if(colId === "PREP") return o.flow === FLOW.PREPARAZIONE;
 
     if(o.flow !== FLOW.PREPARAZIONE) return false;
     if(colId === "FRONTALE") return !o.frontaleOK;
     if(colId === "POSTERIORE") return !o.posterioreOK;
-
     return false;
   }
 
@@ -745,14 +715,14 @@ window.onerror = function(msg, url, line, col, err){
      ORDINI ATTIVI
   ========================= */
   function statusLabel(o){
-    if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO", cls:"pill"};
-    if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE", cls:"pill"};
-    if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO", cls:"pill"};
+    if(o.flow === FLOW.COMPLETATO) return {text:"COMPLETATO"};
+    if(o.flow === FLOW.SPEDIZIONE) return {text:"SPEDIZIONE"};
+    if(o.flow === FLOW.ASSEMBLAGGIO) return {text:"ASSEMBLAGGIO"};
 
-    if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)", cls:"pill"};
-    if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE", cls:"pill"};
-    if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE", cls:"pill"};
-    return {text:"ORDINI RICEVUTI", cls:"pill"};
+    if(!o.frontaleOK && !o.posterioreOK) return {text:"IN STAMPA (front+post)"};
+    if(o.frontaleOK && !o.posterioreOK) return {text:"ATTESA POSTERIORE"};
+    if(!o.frontaleOK && o.posterioreOK) return {text:"ATTESA FRONTALE"};
+    return {text:"ORDINI RICEVUTI"};
   }
 
   function refreshActiveTable(){
@@ -793,7 +763,6 @@ window.onerror = function(msg, url, line, col, err){
     return orders.filter(o=>o.flow === FLOW.COMPLETATO).slice()
       .sort((a,b)=>(b.completedAt||"").localeCompare(a.completedAt||""));
   }
-
   function groupByDay(arr){
     const map = new Map();
     arr.forEach(o=>{
@@ -830,15 +799,14 @@ window.onerror = function(msg, url, line, col, err){
     dow.innerHTML = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"]
       .map(x=>`<div class="muted" style="width:40px">${x}</div>`).join("");
 
-    const all = getCompletedAll();
-    const byDay = groupByDay(all);
+    const byDay = groupByDay(getCompletedAll());
 
     const y = salesMonthCursor.getFullYear();
     const m = salesMonthCursor.getMonth();
     const first = new Date(y, m, 1);
     const last = new Date(y, m+1, 0);
 
-    const firstJsDow = first.getDay(); // 0..6
+    const firstJsDow = first.getDay();
     const firstIsoDow = firstJsDow === 0 ? 7 : firstJsDow;
     const padCells = firstIsoDow - 1;
 
@@ -866,10 +834,7 @@ window.onerror = function(msg, url, line, col, err){
       cell.style.minHeight = "60px";
       cell.style.cursor = "pointer";
       cell.innerHTML = `<b>${d}</b><div class="muted">${arr.length ? `${arr.length} ord.<br>€ ${euro(total)}` : ""}</div>`;
-      cell.onclick = ()=>{
-        salesSelectedDayKey = key;
-        refreshSalesUI();
-      };
+      cell.onclick = ()=>{ salesSelectedDayKey = key; refreshSalesUI(); };
       cal.appendChild(cell);
     }
 
@@ -901,7 +866,7 @@ window.onerror = function(msg, url, line, col, err){
   }
 
   /* =========================
-     COMPLETATI (liste + pulizia memoria)
+     COMPLETATI (liste + pulizia)
   ========================= */
   function renderDone(){
     const tbody = $("doneTbody");
@@ -959,41 +924,71 @@ window.onerror = function(msg, url, line, col, err){
 
     const { error } = await sb.from(TBL_ORDERS).delete().eq("id", id);
     if(error){
-      console.error("deleteCompleted error:", error);
+      console.error("deleteCompleted:", error);
       alert("Errore eliminazione completato.");
     }
   }
 
   async function clearCompleted(){
     if(!confirm("Cancellare TUTTI gli ordini completati?")) return;
-
     const { error } = await sb.from(TBL_ORDERS).delete().eq("flow", FLOW.COMPLETATO);
     if(error){
-      console.error("clearCompleted error:", error);
+      console.error("clearCompleted:", error);
       alert("Errore cancellazione completati.");
     }
   }
 
   async function clearAllData(){
     if(!confirm("RESET TUTTO? (orders_app + stock_app)")) return;
-
-    // cancella tutto
     const a = await sb.from(TBL_ORDERS).delete().neq("id", "__never__");
-    if(a.error) console.error("reset orders error:", a.error);
-
+    if(a.error) console.error("reset orders:", a.error);
     const b = await sb.from(TBL_STOCK).delete().neq("articolo", "__never__");
-    if(b.error) console.error("reset stock error:", b.error);
-
+    if(b.error) console.error("reset stock:", b.error);
     tempItems = [];
     renderTempItems();
     alert("Reset completato.");
   }
 
   /* =========================
+     ORDINI ATTIVI
+  ========================= */
+  function refreshActiveTable(){
+    const tbody = $("activeTbody");
+    if(!tbody) return;
+
+    const actives = orders.filter(o=>o.flow !== FLOW.COMPLETATO);
+    tbody.innerHTML = "";
+
+    if(actives.length === 0){
+      tbody.innerHTML = `<tr><td colspan="7" class="muted">Nessun ordine attivo.</td></tr>`;
+      return;
+    }
+
+    actives.forEach(o=>{
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${esc(o.articolo ?? "-")}</td>
+        <td>${esc(o.cliente ?? "-")}</td>
+        <td>${esc(o.sito ?? "-")}</td>
+        <td>€ ${euro(o.prezzo ?? 0)}</td>
+        <td>${esc(statusLabel(o).text)}</td>
+        <td>${fmtDT(o.createdAt)}</td>
+        <td>${fmtDT(o.updatedAt)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  /* =========================
      START
   ========================= */
   document.addEventListener("DOMContentLoaded", async () => {
-    // prima carichiamo dati, poi realtime
+    // se non hai inserito URL/KEY, blocchiamo con errore chiaro
+    if(SUPABASE_URL.includes("INCOLLA_QUI") || SUPABASE_ANON_KEY.includes("INCOLLA_QUI")){
+      alert("Devi incollare SUPABASE_URL e SUPABASE_ANON_KEY dentro app.js");
+      return;
+    }
+
     await fetchStock();
     await fetchOrders();
     startRealtime();
@@ -1001,7 +996,7 @@ window.onerror = function(msg, url, line, col, err){
   });
 
   /* =========================
-     EXPORT per onclick HTML
+     EXPORT (onclick HTML)
   ========================= */
   Object.assign(window, {
     showNew, showPrep, showSales, showStock, showDone, showDoneSimple, showSettings,
@@ -1011,7 +1006,6 @@ window.onerror = function(msg, url, line, col, err){
     salesPrevMonth, salesNextMonth,
     clearCompleted, clearAllData,
     deleteCompleted,
-    // usate dai bottoni creati in JS
     removeOrder, setFrontaleOK, setPosterioreOK,
   });
 
